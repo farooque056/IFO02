@@ -593,16 +593,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                         <span
                           className={`text-[10px] font-mono-num font-semibold block ${
-                            financials.evBalance !== null && financials.evBalance >= 0
-                              ? 'text-blue-400'
-                              : 'text-rose-400'
+                            financials.evBalance !== null && financials.evBalance > 0
+                              ? 'text-emerald-400'
+                              : financials.evBalance !== null && financials.evBalance < 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
                           }`}
                         >
-                          {financials.evBalance !== null
+                          {financials.evBalance !== null && financials.evBalance !== 0
                             ? financials.evBalance > 0
                               ? `Bal: +${formatINR(financials.evBalance)}`
                               : `Bal: ${formatINR(financials.evBalance)}`
-                            : 'Bal: ₹0'}
+                            : 'Settled'}
                         </span>
                       </div>
                       <div className="w-7 h-7 rounded-xl bg-slate-800/60 group-hover:bg-blue-950/80 flex items-center justify-center text-slate-400 group-hover:text-blue-400 transition-colors shrink-0 ml-1">

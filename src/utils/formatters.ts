@@ -174,9 +174,9 @@ export function calculateEventSummary(
     const memberObj = members.find((m) => m.id === mId);
     const memberName = memberObj ? memberObj.name : 'Unknown Member';
 
-    // Expenses paid out of pocket
+    // Expenses paid out of pocket (excluding expenses paid by group fund)
     const expensePaid = eventExpenses
-      .filter((e) => e.paidById === mId)
+      .filter((e) => e.paidById === mId && e.paidById !== 'fund')
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
     // Contribution transactions recorded for this event
@@ -191,7 +191,32 @@ export function calculateEventSummary(
           .reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
       : 0;
 
-    const basePaid = expensePaid + txPaid;
+    // Safeguard: if a member has both recorded contribution transactions and out-of-pocket expenses,
+    // ensure transactions that sponsor or settle those expenses are not counted twice.
+    let effectiveExpensePaid = expensePaid;
+    if (txPaid > 0 && expensePaid > 0) {
+      const memberTxs = (transactions || []).filter(
+        (t) =>
+          (t.eventId === event.id || (t.event && t.event.toLowerCase() === event.name.toLowerCase())) &&
+          t.memberId === mId &&
+          t.paymentStatus === 'Paid'
+      );
+      const isAlreadyCoveredInTx = eventExpenses.some(
+        (e) =>
+          e.paidById === mId &&
+          memberTxs.some(
+            (t) =>
+              Number(t.amount) === Number(e.amount) ||
+              (t.notes && e.name && t.notes.toLowerCase().includes(e.name.toLowerCase())) ||
+              (e.notes && t.transactionId && e.notes.toLowerCase().includes(t.transactionId.toLowerCase()))
+          )
+      );
+      if (isAlreadyCoveredInTx) {
+        effectiveExpensePaid = Math.max(0, expensePaid - txPaid);
+      }
+    }
+
+    const basePaid = effectiveExpensePaid + txPaid;
     const isExempt = exemptIds.has(mId);
     const isWeddingPerson = event.weddingPersonId === mId;
     const expectedShare = isExempt ? 0 : perMemberCost;

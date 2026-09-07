@@ -302,7 +302,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                     {event.status === 'hold' ? 'ON HOLD' : event.status === 'completed' ? 'CLOSED' : event.status.toUpperCase()}
                   </span>
 
-                  {eventBalance !== null && (
+                  {eventBalance !== null && eventBalance !== 0 && (
                     <div className="px-3 py-1 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 text-xs font-bold font-mono-num flex items-center gap-1.5">
                       <span>Balance:</span>
                       <span className="text-amber-200 font-black">{formatINR(eventBalance)}</span>
@@ -991,21 +991,36 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
                 {/* Final Balance Highlight matching the spreadsheet */}
                 {eventBalance !== null && (
-                  <div className="p-4 bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-amber-500/20 border-2 border-amber-400/60 rounded-2xl flex items-center justify-between shadow-md">
-                    <div>
-                      <span className="text-[11px] uppercase font-black tracking-wider text-amber-300 block">
-                        Net Fund Surplus / Remaining Balance
-                      </span>
-                      <p className="text-xs text-amber-200/90 mt-0.5">
-                        Total Collections ({formatINR(totalEventCollections)}) - Expenses ({formatINR(summary.totalCost)})
-                      </p>
+                  eventBalance !== 0 ? (
+                    <div className="p-4 bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-amber-500/20 border-2 border-amber-400/60 rounded-2xl flex items-center justify-between shadow-md">
+                      <div>
+                        <span className="text-[11px] uppercase font-black tracking-wider text-amber-300 block">
+                          Net Fund Surplus / Remaining Balance
+                        </span>
+                        <p className="text-xs text-amber-200/90 mt-0.5">
+                          Total Collections ({formatINR(totalEventCollections)}) - Expenses ({formatINR(summary.totalCost)})
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xl sm:text-2xl font-black font-mono-num text-amber-300 bg-amber-950/90 px-3.5 py-1.5 rounded-xl border border-amber-400/50 inline-block">
+                          {formatINR(eventBalance)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-xl sm:text-2xl font-black font-mono-num text-amber-300 bg-amber-950/90 px-3.5 py-1.5 rounded-xl border border-amber-400/50 inline-block">
-                        {formatINR(eventBalance)}
+                  ) : (
+                    <div className="p-3.5 bg-[#0A1325]/80 border border-blue-900/40 rounded-2xl flex items-center justify-between text-xs text-slate-300">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span className="font-semibold text-white">Event Fully Settled:</span>
+                        <span className="text-slate-400">
+                          Total Collections ({formatINR(totalEventCollections)}) equals Total Expenses ({formatINR(summary.totalCost)})
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-400 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-800/60">
+                        Zero Balance
                       </span>
                     </div>
-                  </div>
+                  )
                 )}
               </div>
             )}

@@ -313,11 +313,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
                             </span>
                           </div>
                           <div className="text-right pl-3 border-l border-slate-800/80">
-                            <span className="text-[10px] uppercase font-bold text-amber-300 block tracking-wide">
-                              Remaining Balance
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
+                              {(evBalance ?? 0) === 0 ? 'Status' : 'Remaining Balance'}
                             </span>
-                            <span className="text-sm font-black font-mono-num text-amber-300">
-                              {formatINR(evBalance ?? 0)}
+                            <span className={`text-sm font-black font-mono-num ${(evBalance ?? 0) === 0 ? 'text-emerald-400' : 'text-amber-300'}`}>
+                              {(evBalance ?? 0) === 0 ? 'Settled (₹0)' : formatINR(evBalance ?? 0)}
                             </span>
                           </div>
                         </div>

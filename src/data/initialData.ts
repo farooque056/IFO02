@@ -455,6 +455,7 @@ export const INITIAL_EVENTS: EventItem[] = [
     ],
     "type": "wedding",
     "id": "ev_ameen_wedding",
+    "weddingPersonId": "m17",
     "memberIds": [
       "m1",
       "m2",
@@ -574,7 +575,7 @@ export const INITIAL_EXPENSES: Expense[] = [
   {
     "paymentMethod": "bank",
     "receiptNo": "TX040",
-    "paidById": "m12",
+    "paidById": "fund",
     "eventId": "ev_premier_league_2026",
     "createdAt": "2026-01-15T09:00:00.000Z",
     "notes": "TX040: Team Jersey purchased and settled by Sinan (TX036)",

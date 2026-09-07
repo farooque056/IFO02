@@ -444,11 +444,11 @@ export const EventCalendarView: React.FC<EventCalendarViewProps> = ({
                               </span>
                             </div>
                             <div className="text-right pl-3 border-l border-slate-800">
-                              <span className="text-[9.5px] uppercase font-bold text-amber-300 block tracking-wider">
-                                Remaining Balance
+                              <span className="text-[9.5px] uppercase font-bold text-slate-400 block tracking-wider">
+                                {(evBalance ?? 0) === 0 ? 'Status' : 'Remaining Balance'}
                               </span>
-                              <span className="text-xs sm:text-sm font-black font-mono-num text-amber-300">
-                                {formatINR(evBalance ?? 0)}
+                              <span className={`text-xs sm:text-sm font-black font-mono-num ${(evBalance ?? 0) === 0 ? 'text-emerald-400' : 'text-amber-300'}`}>
+                                {(evBalance ?? 0) === 0 ? 'Settled (₹0)' : formatINR(evBalance ?? 0)}
                               </span>
                             </div>
                           </>
@@ -566,11 +566,11 @@ export const EventCalendarView: React.FC<EventCalendarViewProps> = ({
                             </span>
                           </div>
                           <div className="pl-2 border-l border-slate-800">
-                            <span className="text-[9px] uppercase font-bold text-amber-300 block">
-                              Balance
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block">
+                              {(evBalance ?? 0) === 0 ? 'Status' : 'Balance'}
                             </span>
-                            <span className="font-extrabold font-mono-num text-amber-300">
-                              {formatINR(evBalance ?? 0)}
+                            <span className={`font-extrabold font-mono-num ${(evBalance ?? 0) === 0 ? 'text-emerald-400' : 'text-amber-300'}`}>
+                              {(evBalance ?? 0) === 0 ? 'Settled (₹0)' : formatINR(evBalance ?? 0)}
                             </span>
                           </div>
                         </div>
