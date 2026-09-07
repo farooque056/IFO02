@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firestore-blueprint.json",
+  "collections": [
+    {
+      "name": "members",
+      "description": "Registered community members roster",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "role", "type": "string" },
+        { "name": "phone", "type": "string" },
+        { "name": "avatar", "type": "string" },
+        { "name": "isActive", "type": "boolean" },
+        { "name": "joinedDate", "type": "string" }
+      ]
+    },
+    {
+      "name": "events",
+      "description": "Financial events and initiatives",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "date", "type": "string" },
+        { "name": "location", "type": "string" },
+        { "name": "status", "type": "string" },
+        { "name": "memberIds", "type": "array" },
+        { "name": "settledMemberIds", "type": "array" },
+        { "name": "categories", "type": "array" },
+        { "name": "notes", "type": "string" },
+        { "name": "createdAt", "type": "string" }
+      ]
+    },
+    {
+      "name": "expenses",
+      "description": "All event and general expense vouchers",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "eventId", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "category", "type": "string" },
+        { "name": "amount", "type": "number" },
+        { "name": "date", "type": "string" },
+        { "name": "paidById", "type": "string" },
+        { "name": "paymentMethod", "type": "string" },
+        { "name": "receiptNo", "type": "string" },
+        { "name": "notes", "type": "string" },
+        { "name": "createdAt", "type": "string" }
+      ]
+    },
+    {
+      "name": "transactions",
+      "description": "All financial transactions (contributions and expenses)",
+      "fields": [
+        { "name": "transactionId", "type": "string" },
+        { "name": "event", "type": "string" },
+        { "name": "eventId", "type": "string" },
+        { "name": "date", "type": "string" },
+        { "name": "transactionType", "type": "string" },
+        { "name": "nameOrCategory", "type": "string" },
+        { "name": "amount", "type": "number" },
+        { "name": "paymentStatus", "type": "string" },
+        { "name": "memberId", "type": "string" },
+        { "name": "category", "type": "string" },
+        { "name": "paymentMethod", "type": "string" },
+        { "name": "notes", "type": "string" }
+      ]
+    },
+    {
+      "name": "settings",
+      "description": "Global financial ledger settings and opening balance",
+      "fields": [
+        { "name": "openingBalance", "type": "number" },
+        { "name": "updatedAt", "type": "string" }
+      ]
+    }
+  ]
+}

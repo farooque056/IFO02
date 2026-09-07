@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Remix Remix Remix IFO — Ishal Finance Organizer",
+  "description": "A sleek, modern mobile financial organizer for Tm ISHAL to track group events, expenses, members, and totals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
