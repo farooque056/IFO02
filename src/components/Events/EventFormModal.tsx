@@ -115,7 +115,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const parsedMinimumAmount = parseFloat(minimumAmountPerPerson) || 0;
   const participantCount = selectedMemberIds.length;
   const isWeddingPersonExempt = Boolean(
-    type === 'wedding' && weddingPersonId && selectedMemberIds.includes(weddingPersonId)
+    weddingPersonId && selectedMemberIds.includes(weddingPersonId)
   );
   const splittingCount = isWeddingPersonExempt
     ? Math.max(1, participantCount - 1)
@@ -203,13 +203,18 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       }
     }
 
-    const actualWeddingPersonId = type === 'wedding' && weddingPersonId ? weddingPersonId : undefined;
-    const actualExemptIds = actualWeddingPersonId ? [actualWeddingPersonId] : [];
+    const actualWeddingPersonId = weddingPersonId ? weddingPersonId : undefined;
+    const actualExemptIds = actualWeddingPersonId ? [actualWeddingPersonId] : (eventToEdit?.exemptMemberIds || []);
 
     const parsedTarget = splitMode === 'even' && parsedTargetSplit > 0 ? parsedTargetSplit : undefined;
     const parsedMin = splitMode === 'minimum' && parsedMinimumAmount > 0 ? parsedMinimumAmount : undefined;
 
     if (eventToEdit) {
+      const existingSettled = eventToEdit.settledMemberIds || [];
+      const updatedSettled = actualWeddingPersonId && !existingSettled.includes(actualWeddingPersonId)
+        ? [...existingSettled, actualWeddingPersonId]
+        : existingSettled;
+
       updateEvent(eventToEdit.id, {
         name: resolvedName,
         type,
@@ -218,6 +223,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
         status,
         weddingPersonId: actualWeddingPersonId,
         exemptMemberIds: actualExemptIds,
+        settledMemberIds: updatedSettled,
         memberIds: selectedMemberIds,
         categories,
         splitMode,
@@ -248,6 +254,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
         status,
         weddingPersonId: actualWeddingPersonId,
         exemptMemberIds: actualExemptIds,
+        settledMemberIds: actualWeddingPersonId ? [actualWeddingPersonId] : [],
         memberIds: selectedMemberIds,
         categories: categories.length > 0 ? categories : EVENT_TYPE_CATEGORIES[type],
         splitMode,
@@ -396,8 +403,8 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
             </div>
           </div>
 
-          {/* 2.5 Wedding Member Celebrant Card (Exempt from split) */}
-          {type === 'wedding' && (
+          {/* 2.5 Wedding Member / Celebrant Exemption Card (Exempt from split) */}
+          {(type === 'wedding' || Boolean(weddingPersonId)) ? (
             <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/70 via-[#1B1226] to-[#121A2E] border-2 border-rose-500/60 shadow-lg space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
@@ -406,13 +413,13 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                      Wedding Team Member (Groom / Bride)
+                      Wedding / Celebrated Team Member
                       <span className="text-[10px] uppercase font-extrabold bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full border border-rose-500/40">
-                        Zero Split • ₹0
+                        Zero Split • ₹0 Owed
                       </span>
                     </h4>
                     <p className="text-[11px] text-rose-200/80 mt-0.5">
-                      It is our team member's wedding! Cost will <strong>NOT be split</strong> to the wedding person. Remaining members will share the expense.
+                      It is our team member's wedding or celebration! Cost will <strong>NOT be collected from this member</strong>. Remaining members will share the expense. They will have <strong>no pending dues</strong> on their account.
                     </p>
                   </div>
                 </div>
@@ -420,7 +427,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-rose-300 mb-1.5">
-                  Select Team Member Getting Married (Groom / Bride)
+                  Select Team Member (Groom / Bride / Celebrant)
                 </label>
                 <select
                   value={weddingPersonId}
@@ -440,7 +447,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   }}
                   className="w-full px-3.5 py-2.5 bg-[#0D1527] border border-rose-800/80 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 font-semibold"
                 >
-                  <option value="">-- Choose Team Member (e.g. Ameen, Shanavas, Fayis...) --</option>
+                  <option value="">-- Choose Team Member (e.g. Asker Ali, Ameen, Shanavas...) --</option>
                   {members.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} {m.phone ? `(${m.phone})` : ''} {m.role ? `• ${m.role}` : ''}
@@ -454,7 +461,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-base">🎉</span>
                     <span>
-                      <strong>{members.find((m) => m.id === weddingPersonId)?.name}</strong> will pay <strong>₹0 share</strong> (Exempt from split).
+                      <strong>{members.find((m) => m.id === weddingPersonId)?.name}</strong> will pay <strong>₹0 share</strong> (Exempt from split & dues).
                     </span>
                   </div>
                   <button
@@ -476,6 +483,29 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   Tip: If this is an outside wedding where all attending members split equally, leave this unselected.
                 </p>
               )}
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-2xl bg-[#0D1527] border border-slate-800 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center text-sm shrink-0">
+                  💍
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">
+                    Team Member Wedding or Special Celebration?
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    If this event celebrates a team member, select them to exempt them from cost-splitting (₹0 dues).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWeddingPersonId(members[0]?.id || '')}
+                className="py-1.5 px-3 bg-[#15223C] hover:bg-rose-950/80 hover:text-rose-200 border border-slate-700 hover:border-rose-700/80 text-slate-200 rounded-xl text-xs font-bold shrink-0 transition-colors"
+              >
+                + Exempt Team Member
+              </button>
             </div>
           )}
 

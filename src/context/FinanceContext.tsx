@@ -241,11 +241,23 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
   }, [transactions]);
 
+  // Aggregate collections directly across all events (including weddings and custom functions with settled members)
+  const totalCollectionsFromEvents = useMemo(() => {
+    return events.reduce((sum, ev) => {
+      const fin = getEventFinancials(ev, expenses, members, transactions);
+      return sum + (fin.evTotalCollections || 0);
+    }, 0);
+  }, [events, expenses, members, transactions]);
+
+  const dynamicTotalCollected = useMemo(() => {
+    return Math.max(totalCollectionsFromEvents, totalCollectionsFromTransactions);
+  }, [totalCollectionsFromEvents, totalCollectionsFromTransactions]);
+
   const [customTotalCollected, setCustomTotalCollected] = useState<number | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TOTAL_COLLECTED);
-      // Migrate old/stale 72700 default to null so it automatically syncs to real 73000
-      if (saved === null || saved === '72700') {
+      // Migrate old/stale fixed 72700 / 73000 defaults to null so it automatically syncs dynamically
+      if (saved === null || saved === '72700' || saved === '73000') {
         return null;
       }
       const num = Number(saved);
@@ -255,7 +267,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
 
-  const totalCollected = customTotalCollected !== null ? customTotalCollected : totalCollectionsFromTransactions;
+  const totalCollected =
+    customTotalCollected !== null && customTotalCollected !== 73000 && customTotalCollected !== 72700
+      ? customTotalCollected
+      : dynamicTotalCollected;
 
   // 6. Security / PIN State
   const [sharedPin, setSharedPin] = useState<string>(() => {
@@ -349,7 +364,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       onSettings: (cloudSettings) => {
         if (isMounted) {
           setOpeningBalanceState(cloudSettings.openingBalance ?? 7911);
-          setCustomTotalCollected(cloudSettings.customTotalCollected ?? null);
+          if (cloudSettings.customTotalCollected === 73000 || cloudSettings.customTotalCollected === 72700) {
+            setCustomTotalCollected(null);
+          } else {
+            setCustomTotalCollected(cloudSettings.customTotalCollected ?? null);
+          }
           if ((cloudSettings as any).cleared) {
             try {
               localStorage.setItem(STORAGE_KEYS.CLEARED, 'true');

@@ -26,6 +26,55 @@ export function formatDate(dateString: string): string {
   }
 }
 
+export function isMemberExemptFromEvent(
+  event: EventItem,
+  memberId: string,
+  members: Member[] = []
+): boolean {
+  if (!event || !memberId) return false;
+
+  // Other Expenses fund is non-split
+  if (
+    event.id === 'ev_other_expenses' ||
+    event.name.trim().toLowerCase() === 'other expenses' ||
+    event.name.toLowerCase().includes('other expense')
+  ) {
+    return true;
+  }
+
+  // Explicit wedding person ID
+  if (event.weddingPersonId && event.weddingPersonId === memberId) {
+    return true;
+  }
+
+  // Explicit exempt member IDs list
+  if (event.exemptMemberIds && Array.isArray(event.exemptMemberIds) && event.exemptMemberIds.includes(memberId)) {
+    return true;
+  }
+
+  // Auto-detection: if event is wedding or related celebration and title contains member's name
+  const evNameLower = (event.name || '').toLowerCase();
+  if (
+    event.type === 'wedding' ||
+    evNameLower.includes('wedding') ||
+    evNameLower.includes('marriage') ||
+    evNameLower.includes('nikah')
+  ) {
+    const member = members.find((m) => m.id === memberId);
+    if (member && member.name) {
+      const mNameLower = member.name.toLowerCase().trim();
+      if (
+        evNameLower.includes(mNameLower) ||
+        evNameLower.startsWith(mNameLower)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function calculateEventSummary(
   event: EventItem,
   expenses: Expense[],
@@ -38,6 +87,11 @@ export function calculateEventSummary(
   const memberCount = allMemberIds.length;
 
   // Identify exempt members (e.g. team member getting married who shouldn't have costs split to them)
+  const isOtherExpenses =
+    event.id === 'ev_other_expenses' ||
+    event.name.trim().toLowerCase() === 'other expenses' ||
+    event.name.toLowerCase().includes('other expense');
+
   const exemptIds = new Set<string>();
   if (event.weddingPersonId) {
     exemptIds.add(event.weddingPersonId);
@@ -45,11 +99,32 @@ export function calculateEventSummary(
   if (event.exemptMemberIds && Array.isArray(event.exemptMemberIds)) {
     event.exemptMemberIds.forEach((id) => exemptIds.add(id));
   }
+  if (isOtherExpenses) {
+    allMemberIds.forEach((id) => exemptIds.add(id));
+  }
+
+  // Check all members with isMemberExemptFromEvent
+  allMemberIds.forEach((mId) => {
+    if (isMemberExemptFromEvent(event, mId, members)) {
+      exemptIds.add(mId);
+    }
+  });
 
   // Find wedding person name if available
-  const weddingPersonMember = event.weddingPersonId
-    ? members.find((m) => m.id === event.weddingPersonId)
+  let resolvedWeddingPersonId = event.weddingPersonId;
+  let weddingPersonMember = resolvedWeddingPersonId
+    ? members.find((m) => m.id === resolvedWeddingPersonId)
     : undefined;
+
+  if (!weddingPersonMember) {
+    const detectedId = Array.from(exemptIds).find((id) => id !== 'ev_other_expenses');
+    if (detectedId) {
+      weddingPersonMember = members.find((m) => m.id === detectedId);
+      if (weddingPersonMember) {
+        resolvedWeddingPersonId = detectedId;
+      }
+    }
+  }
   const weddingPersonName = weddingPersonMember?.name;
 
   // Splitting members are participating members who are NOT exempt
@@ -122,7 +197,10 @@ export function calculateEventSummary(
   let perMemberCost = 0;
   let totalMinimumTarget: number | undefined = undefined;
 
-  if (splitMode === 'minimum' && minimumAmountPerPerson > 0) {
+  if (isOtherExpenses) {
+    perMemberCost = 0;
+    totalMinimumTarget = undefined;
+  } else if (splitMode === 'minimum' && minimumAmountPerPerson > 0) {
     perMemberCost = minimumAmountPerPerson;
     totalMinimumTarget = minimumAmountPerPerson * splittingMemberCount;
   } else if (splitMode === 'even' && targetSplitAmount > 0) {
@@ -294,7 +372,7 @@ export function calculateEventSummary(
     memberCount,
     splittingMemberCount,
     exemptMemberCount,
-    weddingPersonId: event.weddingPersonId,
+    weddingPersonId: resolvedWeddingPersonId,
     weddingPersonName,
     splitMode,
     targetSplitAmount: targetSplitAmount > 0 ? targetSplitAmount : undefined,
@@ -572,7 +650,13 @@ export function getMemberFinancials(
   expenses: Expense[],
   transactions: TransactionRecord[] = []
 ): MemberFinancialMetrics {
-  const joinedEvents = events.filter((ev) => (ev.memberIds || []).includes(member.id));
+  const joinedEvents = events.filter(
+    (ev) =>
+      (ev.memberIds || []).includes(member.id) &&
+      ev.id !== 'ev_other_expenses' &&
+      ev.name.trim().toLowerCase() !== 'other expenses' &&
+      !ev.name.toLowerCase().includes('other expense')
+  );
 
   // 1. Total Donated: all paid contribution transactions across all events
   const memberPaidContributions = transactions.filter((tx) => {
@@ -604,6 +688,26 @@ export function getMemberFinancials(
   const pendingEvents: MemberPendingEvent[] = [];
 
   joinedEvents.forEach((ev) => {
+    if (
+      ev.id === 'ev_other_expenses' ||
+      ev.name.trim().toLowerCase() === 'other expenses' ||
+      ev.name.toLowerCase().includes('other expense')
+    ) {
+      return;
+    }
+
+    // Check if member is exempt (wedding person or in exemptMemberIds)
+    const isExempt =
+      isMemberExemptFromEvent(ev, member.id, [member]) ||
+      ev.weddingPersonId === member.id ||
+      (ev.exemptMemberIds || []).includes(member.id);
+
+    if (isExempt) {
+      // The member is exempt from this event (e.g. Groom / Bride in a wedding).
+      // They do NOT owe any money, their share is ₹0, and they CANNOT have pending dues.
+      return;
+    }
+
     const paidForEventTxs = transactions.filter((tx) => {
       const matchesEvent =
         tx.eventId === ev.id ||

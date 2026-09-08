@@ -4,6 +4,7 @@ import { calculateEventSummary, formatDate, formatINR, getEventFinancials } from
 import { downloadCommunityMasterReportPDF } from '../../utils/pdfGenerator';
 import { EVENT_TYPE_LABELS } from '../../data/initialData';
 import { RecordMemberPaymentModal } from '../Events/RecordMemberPaymentModal';
+import { PendingMembersModal } from './PendingMembersModal';
 import {
   Receipt,
   ChevronDown,
@@ -94,6 +95,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [customPaymentMemberId, setCustomPaymentMemberId] = useState<string | undefined>(undefined);
   const [customPaymentDefaultAmount, setCustomPaymentDefaultAmount] = useState<number | undefined>(undefined);
 
+  // All pending members list modal state
+  const [isPendingMembersModalOpen, setIsPendingMembersModalOpen] = useState(false);
+
   // Real-time aggregate financials across all events
   const allEventsTotals = useMemo(() => {
     let disbursed = 0;
@@ -112,26 +116,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Financial calculations - guaranteed matching all events total balance
   const balanceAmount = allEventsTotals.balance;
+  const displayTotalCollected = Math.max(totalCollected, allEventsTotals.collections);
 
 
-  // Aggregate unpaid members across all events
+  // Aggregate unpaid members across all community events
   const allUnpaidMembers = useMemo(() => {
-    const list: { eventId: string; eventName: string; memberId: string; memberName: string; phone?: string; amountOwed: number }[] = [];
+    const list: {
+      eventId: string;
+      eventName: string;
+      eventDate?: string;
+      eventType?: string;
+      memberId: string;
+      memberName: string;
+      phone?: string;
+      role?: string;
+      amountOwed: number;
+    }[] = [];
     events.forEach((ev) => {
+      if (
+        ev.id === 'ev_other_expenses' ||
+        ev.name.trim().toLowerCase() === 'other expenses' ||
+        ev.name.toLowerCase().includes('other expense')
+      ) {
+        return;
+      }
       const summary = calculateEventSummary(ev, expenses, members, transactions);
       summary.unpaidMembers.forEach((u) => {
+        const memObj = members.find((m) => m.id === u.memberId);
         list.push({
           eventId: ev.id,
           eventName: ev.name,
+          eventDate: ev.date,
+          eventType: ev.type,
           memberId: u.memberId,
           memberName: u.memberName,
-          phone: u.phone,
+          phone: u.phone || memObj?.phone,
+          role: memObj?.role,
           amountOwed: u.amountOwed,
         });
       });
     });
     return list;
   }, [events, expenses, members, transactions]);
+
+  const uniqueUnpaidMembersCount = useMemo(() => {
+    return new Set(allUnpaidMembers.map((u) => u.memberId)).size;
+  }, [allUnpaidMembers]);
 
   const totalUnpaidAcrossEvents = useMemo(() => {
     return allUnpaidMembers.reduce((sum, item) => sum + item.amountOwed, 0);
@@ -270,7 +300,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             
             <div className="flex items-center gap-2 self-start sm:self-auto">
               <button
-                onClick={() => downloadCommunityMasterReportPDF(events, expenses, members, totalCollected, 0, transactions)}
+                onClick={() => downloadCommunityMasterReportPDF(events, expenses, members, displayTotalCollected, 0, transactions)}
                 className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition-all active:scale-95"
                 title="Download Master Statement PDF"
               >
@@ -387,7 +417,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
               <p className="text-2xl sm:text-3xl font-extrabold text-emerald-400 font-mono-num tracking-tight">
-                {formatINR(totalCollected)}
+                {formatINR(displayTotalCollected)}
               </p>
               <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1 font-medium">
                 <span>Member collections</span>
@@ -419,16 +449,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Unpaid Alert Banner if any member owes pending share */}
           {allUnpaidMembers.length > 0 && (
-            <div className="mt-3 p-3 bg-amber-950/40 border border-amber-800/50 rounded-2xl flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <p className="text-xs text-amber-200">
-                  <strong>{allUnpaidMembers.length} Unpaid Member Records</strong> across functions (Total Pending: <span className="font-mono-num font-bold text-amber-300">{formatINR(totalUnpaidAcrossEvents)}</span>)
-                </p>
+            <div
+              id="pending-members-alert-card"
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsPendingMembersModalOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setIsPendingMembersModalOpen(true);
+                }
+              }}
+              className="mt-3.5 p-3.5 sm:p-4 bg-gradient-to-r from-amber-950/75 via-amber-950/50 to-[#121828] hover:from-amber-950/95 hover:via-amber-900/60 hover:to-[#171F34] border-2 border-amber-600/70 hover:border-amber-400 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer transition-all duration-200 shadow-lg shadow-amber-950/30 hover:shadow-amber-900/40 group active:scale-[0.995] select-none ring-1 ring-amber-500/25 hover:ring-amber-400/50"
+              title="Click to see all pending members list and dues breakdown"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-950 border border-amber-500/80 text-amber-400 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
+                  <AlertCircle className="w-4.5 h-4.5 stroke-[2.4px]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs sm:text-sm font-bold text-amber-200 group-hover:text-amber-100 transition-colors">
+                      <strong className="text-amber-300 font-extrabold">{uniqueUnpaidMembersCount} Members with Pending Dues</strong>{' '}
+                      <span className="text-amber-400/80 font-medium text-xs">({allUnpaidMembers.length} event records)</span>
+                    </p>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-900/80 text-amber-300 border border-amber-600/80 shrink-0 font-mono-num">
+                      Total: {formatINR(totalUnpaidAcrossEvents)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-300/80 mt-0.5 font-medium flex items-center gap-1">
+                    <span>Click to see all pending members list, event breakdowns & WhatsApp reminders</span>
+                  </p>
+                </div>
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300 border border-amber-700/60 shrink-0">
-                Pending Settlement
-              </span>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                <span className="text-xs font-extrabold flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-700/30 group-hover:bg-amber-500 transition-all font-sans">
+                  <span>View Pending List ({uniqueUnpaidMembersCount})</span>
+                  <ChevronRight className="w-3.5 h-3.5 stroke-[2.5px] group-hover:translate-x-1 transition-transform" />
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -1027,6 +1087,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           event={currentPaymentEvent}
           preSelectedMemberId={customPaymentMemberId}
           defaultAmount={customPaymentDefaultAmount}
+        />
+      )}
+
+      {/* All Pending Members List Modal */}
+      {isPendingMembersModalOpen && (
+        <PendingMembersModal
+          isOpen={isPendingMembersModalOpen}
+          onClose={() => setIsPendingMembersModalOpen(false)}
+          unpaidItems={allUnpaidMembers}
+          events={events}
+          members={members}
+          onSelectEvent={onSelectEvent}
+          onMarkPaid={markMemberPaid}
         />
       )}
     </div>

@@ -130,6 +130,8 @@ export interface TransactionRecord {
   memberId?: string;
   category?: string;
   paymentMethod?: PaymentMethod;
+  createdAt?: string;
 }
 
 export type Transaction = TransactionRecord;
+export type Event = EventItem;

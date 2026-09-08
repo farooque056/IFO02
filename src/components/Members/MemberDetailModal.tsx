@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { Member, EventItem } from '../../types';
-import { calculateEventSummary, formatINR, formatDate, getMemberFinancials } from '../../utils/formatters';
+import { calculateEventSummary, formatINR, formatDate, getMemberFinancials, isMemberExemptFromEvent } from '../../utils/formatters';
 import { downloadMemberPDF } from '../../utils/pdfGenerator';
 import {
   X,
@@ -82,11 +82,16 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
     if (joinedEvents.length > 0) {
       msg += `\n*Event History:*\n`;
       joinedEvents.forEach((ev, idx) => {
+        const isExempt = isMemberExemptFromEvent(ev, member.id, members);
         const pe = pendingEvents.find((p) => p.eventId === ev.id);
         const evDonated = financials.eventDonations
           .filter((d) => d.eventId === ev.id)
           .reduce((sum, d) => sum + d.amount, 0);
-        msg += `${idx + 1}. *${ev.name}*: ${pe ? `⚠️ Pending ${formatINR(pe.pendingAmount)}` : `✅ Settled (${formatINR(evDonated)})`}\n`;
+        if (isExempt) {
+          msg += `${idx + 1}. *${ev.name}*: 💍 Exempt (Groom / Celebrant • ₹0 Share)\n`;
+        } else {
+          msg += `${idx + 1}. *${ev.name}*: ${pe ? `⚠️ Pending ${formatINR(pe.pendingAmount)}` : `✅ Settled (${formatINR(evDonated)})`}\n`;
+        }
       });
     }
 
@@ -381,11 +386,12 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
               ) : (
                 joinedEvents.map((event) => {
                   const evSummary = calculateEventSummary(event, expenses, members);
+                  const isExempt = isMemberExemptFromEvent(event, member.id, members);
                   const pe = pendingEvents.find((p) => p.eventId === event.id);
                   const donatedForThisEvent = financials.eventDonations
                     .filter((d) => d.eventId === event.id)
                     .reduce((sum, d) => sum + d.amount, 0);
-                  const isPending = !!pe && pe.pendingAmount > 0;
+                  const isPending = !isExempt && !!pe && pe.pendingAmount > 0;
 
                   return (
                     <div
@@ -397,13 +403,18 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                       className="bg-[#111A2E] hover:bg-[#15223C] border border-slate-800 hover:border-blue-700/60 rounded-2xl p-4 transition-all duration-200 cursor-pointer group shadow-xs flex items-center justify-between gap-4"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-slate-400 font-mono-num font-medium">
                             {formatDate(event.date)}
                           </span>
                           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-950/80 text-blue-300 border border-blue-800/60">
                             {event.type}
                           </span>
+                          {isExempt && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-950/80 text-rose-300 border border-rose-800/70">
+                              💍 Exempt from collection
+                            </span>
+                          )}
                         </div>
                         <h4 className="text-sm font-bold text-white mt-1 group-hover:text-blue-400 transition-colors truncate">
                           {event.name}
@@ -411,7 +422,7 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1.5 font-medium">
                           <span>Event Total: <strong className="text-white font-mono-num">{formatINR(evSummary.totalCost)}</strong></span>
                           <span>•</span>
-                          <span>Share: <strong className="text-blue-400 font-mono-num">{formatINR(evSummary.perMemberCost)}</strong></span>
+                          <span>Share: <strong className={`font-mono-num ${isExempt ? 'text-rose-300 font-bold' : 'text-blue-400'}`}>{isExempt ? '₹0 (Exempt)' : formatINR(evSummary.perMemberCost)}</strong></span>
                           <span>•</span>
                           <span>Donated (Paid): <strong className="text-emerald-400 font-mono-num">{formatINR(donatedForThisEvent)}</strong></span>
                         </div>
@@ -420,12 +431,18 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                       <div className="text-right shrink-0">
                         <span
                           className={`text-xs font-extrabold px-2.5 py-1 rounded-xl border block text-center font-mono-num ${
-                            isPending
+                            isExempt
+                              ? 'bg-rose-950/60 text-rose-300 border-rose-800/60'
+                              : isPending
                               ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
                               : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
                           }`}
                         >
-                          {isPending ? `Pending ${formatINR(pe.pendingAmount)}` : `Settled`}
+                          {isExempt
+                            ? '💍 Exempt (₹0)'
+                            : isPending
+                            ? `Pending ${formatINR(pe.pendingAmount)}`
+                            : `Settled`}
                         </span>
                         <span className="text-[10px] text-slate-500 block mt-1 font-medium group-hover:text-blue-400 transition-colors">
                           View Event Ledger →
