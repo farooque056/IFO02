@@ -43,37 +43,49 @@ function MainLayout() {
 
   // Handlers
   const handleOpenAddExpense = (eventId?: string) => {
-    setExpenseInitialEventId(eventId || selectedEventId || null);
-    setExpenseToEdit(null);
-    setIsExpenseModalOpen(true);
+    requireAuth(() => {
+      setExpenseInitialEventId(eventId || selectedEventId || null);
+      setExpenseToEdit(null);
+      setIsExpenseModalOpen(true);
+    });
   };
 
   const handleOpenEditExpense = (expense: Expense) => {
-    setExpenseToEdit(expense);
-    setExpenseInitialEventId(expense.eventId);
-    setIsExpenseModalOpen(true);
+    requireAuth(() => {
+      setExpenseToEdit(expense);
+      setExpenseInitialEventId(expense.eventId);
+      setIsExpenseModalOpen(true);
+    });
   };
 
   const handleOpenCreateEvent = (defaultDate?: string) => {
-    setEventToEdit(null);
-    setEventInitialDate(defaultDate);
-    setIsEventModalOpen(true);
+    requireAuth(() => {
+      setEventToEdit(null);
+      setEventInitialDate(defaultDate);
+      setIsEventModalOpen(true);
+    });
   };
 
   const handleOpenEditEvent = (event: EventItem) => {
-    setEventToEdit(event);
-    setEventInitialDate(undefined);
-    setIsEventModalOpen(true);
+    requireAuth(() => {
+      setEventToEdit(event);
+      setEventInitialDate(undefined);
+      setIsEventModalOpen(true);
+    });
   };
 
   const handleOpenAddMember = () => {
-    setMemberToEdit(null);
-    setIsMemberModalOpen(true);
+    requireAuth(() => {
+      setMemberToEdit(null);
+      setIsMemberModalOpen(true);
+    });
   };
 
   const handleOpenEditMember = (member: Member) => {
-    setMemberToEdit(member);
-    setIsMemberModalOpen(true);
+    requireAuth(() => {
+      setMemberToEdit(member);
+      setIsMemberModalOpen(true);
+    });
   };
 
   return (

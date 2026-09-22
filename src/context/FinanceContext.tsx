@@ -591,31 +591,35 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateEvent = (id: string, eventData: Partial<EventItem>) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id === id) {
-          const updatedEv = { ...ev, ...eventData };
-          saveEventCloud(updatedEv).catch((err) => console.error('Cloud update event error:', err));
-          return updatedEv;
-        }
-        return ev;
-      })
-    );
+    requireAuth(() => {
+      setEvents((prev) =>
+        prev.map((ev) => {
+          if (ev.id === id) {
+            const updatedEv = { ...ev, ...eventData };
+            saveEventCloud(updatedEv).catch((err) => console.error('Cloud update event error:', err));
+            return updatedEv;
+          }
+          return ev;
+        })
+      );
+    });
   };
 
   const deleteEvent = (id: string) => {
-    const associatedExpenseIds = expenses.filter((exp) => exp.eventId === id).map((exp) => exp.id);
-    const associatedTxIds = transactions.filter((tx) => tx.eventId === id).map((tx) => tx.transactionId);
+    requireAuth(() => {
+      const associatedExpenseIds = expenses.filter((exp) => exp.eventId === id).map((exp) => exp.id);
+      const associatedTxIds = transactions.filter((tx) => tx.eventId === id).map((tx) => tx.transactionId);
 
-    setEvents((prev) => prev.filter((ev) => ev.id !== id));
-    setExpenses((prev) => prev.filter((exp) => exp.eventId !== id));
-    setTransactions((prev) => prev.filter((tx) => tx.eventId !== id));
-    if (selectedEventId === id) {
-      setSelectedEventId(null);
-    }
-    deleteEventCloud(id, associatedExpenseIds, associatedTxIds).catch((err) =>
-      console.error('Cloud delete event error:', err)
-    );
+      setEvents((prev) => prev.filter((ev) => ev.id !== id));
+      setExpenses((prev) => prev.filter((exp) => exp.eventId !== id));
+      setTransactions((prev) => prev.filter((tx) => tx.eventId !== id));
+      if (selectedEventId === id) {
+        setSelectedEventId(null);
+      }
+      deleteEventCloud(id, associatedExpenseIds, associatedTxIds).catch((err) =>
+        console.error('Cloud delete event error:', err)
+      );
+    });
   };
 
   const addCategoryToEvent = (eventId: string, categoryName: string) => {
@@ -654,43 +658,47 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const markMemberPaid = (eventId: string, memberId: string, isPaid: boolean = true) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id !== eventId) return ev;
-        const currentSettled = new Set(ev.settledMemberIds || []);
-        if (isPaid) {
-          currentSettled.add(memberId);
-        } else {
-          currentSettled.delete(memberId);
-        }
-        const updatedEv = {
-          ...ev,
-          settledMemberIds: Array.from(currentSettled),
-        };
-        saveEventCloud(updatedEv).catch((err) => console.error('Cloud mark paid error:', err));
-        return updatedEv;
-      })
-    );
+    requireAuth(() => {
+      setEvents((prev) =>
+        prev.map((ev) => {
+          if (ev.id !== eventId) return ev;
+          const currentSettled = new Set(ev.settledMemberIds || []);
+          if (isPaid) {
+            currentSettled.add(memberId);
+          } else {
+            currentSettled.delete(memberId);
+          }
+          const updatedEv = {
+            ...ev,
+            settledMemberIds: Array.from(currentSettled),
+          };
+          saveEventCloud(updatedEv).catch((err) => console.error('Cloud mark paid error:', err));
+          return updatedEv;
+        })
+      );
+    });
   };
 
   const toggleMemberSettled = (eventId: string, memberId: string) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id !== eventId) return ev;
-        const currentSettled = new Set(ev.settledMemberIds || []);
-        if (currentSettled.has(memberId)) {
-          currentSettled.delete(memberId);
-        } else {
-          currentSettled.add(memberId);
-        }
-        const updatedEv = {
-          ...ev,
-          settledMemberIds: Array.from(currentSettled),
-        };
-        saveEventCloud(updatedEv).catch((err) => console.error('Cloud toggle settled error:', err));
-        return updatedEv;
-      })
-    );
+    requireAuth(() => {
+      setEvents((prev) =>
+        prev.map((ev) => {
+          if (ev.id !== eventId) return ev;
+          const currentSettled = new Set(ev.settledMemberIds || []);
+          if (currentSettled.has(memberId)) {
+            currentSettled.delete(memberId);
+          } else {
+            currentSettled.add(memberId);
+          }
+          const updatedEv = {
+            ...ev,
+            settledMemberIds: Array.from(currentSettled),
+          };
+          saveEventCloud(updatedEv).catch((err) => console.error('Cloud toggle settled error:', err));
+          return updatedEv;
+        })
+      );
+    });
   };
 
   // Expense CRUD (Synced to Cloud in Real Time)
@@ -729,25 +737,29 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateExpense = (id: string, expenseData: Partial<Expense>) => {
-    setExpenses((prev) =>
-      prev.map((exp) => {
-        if (exp.id === id) {
-          const updatedExp = { ...exp, ...expenseData };
-          saveExpenseCloud(updatedExp).catch((err) => console.error('Cloud update expense error:', err));
-          return updatedExp;
-        }
-        return exp;
-      })
-    );
+    requireAuth(() => {
+      setExpenses((prev) =>
+        prev.map((exp) => {
+          if (exp.id === id) {
+            const updatedExp = { ...exp, ...expenseData };
+            saveExpenseCloud(updatedExp).catch((err) => console.error('Cloud update expense error:', err));
+            return updatedExp;
+          }
+          return exp;
+        })
+      );
+    });
   };
 
   const deleteExpense = (id: string) => {
-    const target = expenses.find((e) => e.id === id);
-    setExpenses((prev) => prev.filter((exp) => exp.id !== id));
-    if (target?.receiptNo) {
-      setTransactions((prev) => prev.filter((tx) => tx.transactionId !== target.receiptNo));
-    }
-    deleteExpenseCloud(id, target?.receiptNo).catch((err) => console.error('Cloud delete expense error:', err));
+    requireAuth(() => {
+      const target = expenses.find((e) => e.id === id);
+      setExpenses((prev) => prev.filter((exp) => exp.id !== id));
+      if (target?.receiptNo) {
+        setTransactions((prev) => prev.filter((tx) => tx.transactionId !== target.receiptNo));
+      }
+      deleteExpenseCloud(id, target?.receiptNo).catch((err) => console.error('Cloud delete expense error:', err));
+    });
   };
 
   // Transaction CRUD (Synced to Cloud in Real Time)
@@ -763,21 +775,25 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateTransaction = (transactionId: string, txData: Partial<TransactionRecord>) => {
-    setTransactions((prev) =>
-      prev.map((tx) => {
-        if (tx.transactionId === transactionId) {
-          const updatedTx = { ...tx, ...txData };
-          saveTransactionCloud(updatedTx).catch((err) => console.error('Cloud update transaction error:', err));
-          return updatedTx;
-        }
-        return tx;
-      })
-    );
+    requireAuth(() => {
+      setTransactions((prev) =>
+        prev.map((tx) => {
+          if (tx.transactionId === transactionId) {
+            const updatedTx = { ...tx, ...txData };
+            saveTransactionCloud(updatedTx).catch((err) => console.error('Cloud update transaction error:', err));
+            return updatedTx;
+          }
+          return tx;
+        })
+      );
+    });
   };
 
   const deleteTransaction = (transactionId: string) => {
-    setTransactions((prev) => prev.filter((tx) => tx.transactionId !== transactionId));
-    deleteTransactionCloud(transactionId).catch((err) => console.error('Cloud delete transaction error:', err));
+    requireAuth(() => {
+      setTransactions((prev) => prev.filter((tx) => tx.transactionId !== transactionId));
+      deleteTransactionCloud(transactionId).catch((err) => console.error('Cloud delete transaction error:', err));
+    });
   };
 
   // Member CRUD (Synced to Cloud in Real Time)
@@ -798,19 +814,25 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateMember = (id: string, memberData: Partial<Member>) => {
-    setMembers((prev) =>
-      prev.map((m) => {
-        if (m.id === id) {
-          const updatedM = { ...m, ...memberData };
-          saveMemberCloud(updatedM).catch((err) => console.error('Cloud update member error:', err));
-          return updatedM;
-        }
-        return m;
-      })
-    );
+    requireAuth(() => {
+      setMembers((prev) =>
+        prev.map((m) => {
+          if (m.id === id) {
+            const updatedM = { ...m, ...memberData };
+            saveMemberCloud(updatedM).catch((err) => console.error('Cloud update member error:', err));
+            return updatedM;
+          }
+          return m;
+        })
+      );
+    });
   };
 
   const deleteMember = (id: string): { success: boolean; message?: string } => {
+    if (!isAdminUnlocked) {
+      openPinModal();
+      return { success: false, message: 'Admin PIN required to delete members.' };
+    }
     // Check if member is involved in any event or expense
     const hasEventParticipation = events.some((ev) => (ev.memberIds || []).includes(id));
     const hasExpensesPaid = expenses.some((exp) => exp.paidById === id);

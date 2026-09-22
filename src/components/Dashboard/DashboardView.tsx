@@ -30,6 +30,7 @@ import {
   CheckCheck,
   Sparkles,
   X,
+  Lock,
 } from 'lucide-react';
 import { Expense } from '../../types';
 
@@ -78,6 +79,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     totalSpending,
     setActiveTab,
     requireAuth,
+    isAdminUnlocked,
     updateEvent,
     markMemberPaid,
   } = useFinance();
@@ -205,46 +207,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return calculateEventSummary(currentPaymentEvent, expenses, members, transactions);
   }, [currentPaymentEvent, expenses, members, transactions]);
 
-  // Single-click instant toggle handler
+  // Single-click instant toggle handler (Admin Only)
   const handleSingleClickPayment = (memberId: string, currentlyPaid: boolean, amountOwed: number) => {
-    if (!currentPaymentEvent) return;
-    const willBePaid = !currentlyPaid;
-    markMemberPaid(currentPaymentEvent.id, memberId, willBePaid);
+    requireAuth(() => {
+      if (!currentPaymentEvent) return;
+      const willBePaid = !currentlyPaid;
+      markMemberPaid(currentPaymentEvent.id, memberId, willBePaid);
 
-    const memberObj = members.find((m) => m.id === memberId);
-    const memberName = memberObj ? memberObj.name : 'Member';
-    const amountText = amountOwed > 0 ? formatINR(amountOwed) : formatINR(currentPaymentSummary?.perMemberCost || 0);
+      const memberObj = members.find((m) => m.id === memberId);
+      const memberName = memberObj ? memberObj.name : 'Member';
+      const amountText = amountOwed > 0 ? formatINR(amountOwed) : formatINR(currentPaymentSummary?.perMemberCost || 0);
 
-    setFeedbackMessage({
-      text: willBePaid
-        ? `✓ ${memberName} marked as Paid (${amountText})`
-        : `○ ${memberName} marked as Unpaid`,
-      type: willBePaid ? 'paid' : 'unpaid',
+      setFeedbackMessage({
+        text: willBePaid
+          ? `✓ ${memberName} marked as Paid (${amountText})`
+          : `○ ${memberName} marked as Unpaid`,
+        type: willBePaid ? 'paid' : 'unpaid',
+      });
+
+      setTimeout(() => {
+        setFeedbackMessage(null);
+      }, 2600);
     });
-
-    setTimeout(() => {
-      setFeedbackMessage(null);
-    }, 2600);
   };
 
-  // Batch action: mark all unpaid members as paid in one click
+  // Batch action: mark all unpaid members as paid in one click (Admin Only)
   const handleMarkAllUnpaid = () => {
-    if (!currentPaymentEvent || !currentPaymentSummary) return;
-    const unpaidList = currentPaymentSummary.unpaidMembers;
-    if (unpaidList.length === 0) return;
+    requireAuth(() => {
+      if (!currentPaymentEvent || !currentPaymentSummary) return;
+      const unpaidList = currentPaymentSummary.unpaidMembers;
+      if (unpaidList.length === 0) return;
 
-    unpaidList.forEach((u) => {
-      markMemberPaid(currentPaymentEvent.id, u.memberId, true);
+      unpaidList.forEach((u) => {
+        markMemberPaid(currentPaymentEvent.id, u.memberId, true);
+      });
+
+      setFeedbackMessage({
+        text: `✓ Marked all ${unpaidList.length} members as Paid`,
+        type: 'paid',
+      });
+
+      setTimeout(() => {
+        setFeedbackMessage(null);
+      }, 2600);
     });
-
-    setFeedbackMessage({
-      text: `✓ Marked all ${unpaidList.length} members as Paid`,
-      type: 'paid',
-    });
-
-    setTimeout(() => {
-      setFeedbackMessage(null);
-    }, 2600);
   };
 
   // Filtered and searched list of enrolled members for this event (exempt members like wedding bride/groom excluded)
@@ -869,11 +875,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     type="button"
                     onClick={handleMarkAllUnpaid}
                     className="py-1.5 px-3 rounded-xl bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-800/80 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
-                    title="Mark all pending members as paid"
+                    title={!isAdminUnlocked ? "Admin PIN required: click to mark all as paid" : "Mark all pending members as paid"}
                   >
                     <CheckCheck className="w-3.5 h-3.5 stroke-[2.4px]" />
                     <span className="hidden sm:inline">Mark All Paid</span>
                     <span className="sm:hidden">All Paid</span>
+                    {!isAdminUnlocked && <Lock className="w-2.5 h-2.5 text-emerald-400/80 ml-0.5" />}
                   </button>
                 )}
               </div>
@@ -1016,22 +1023,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           type="button"
                           onClick={() => handleSingleClickPayment(m.memberId, true, owedAmount)}
                           className="h-8.5 sm:h-9 px-3 sm:px-3.5 rounded-xl bg-emerald-950/80 hover:bg-rose-950/80 border border-emerald-800/80 hover:border-rose-800/80 text-emerald-300 hover:text-rose-300 text-xs font-bold flex items-center gap-1.5 transition-all group cursor-pointer select-none"
-                          title="Click to toggle / mark unpaid"
+                          title={!isAdminUnlocked ? "Admin PIN required: click to toggle unpaid" : "Click to toggle / mark unpaid"}
                         >
                           <Check className="w-3.5 h-3.5 stroke-[3px] text-emerald-400 group-hover:hidden" />
                           <Undo2 className="w-3.5 h-3.5 stroke-[2.4px] text-rose-400 hidden group-hover:inline" />
                           <span className="group-hover:hidden">Paid</span>
                           <span className="hidden group-hover:inline">Mark Unpaid</span>
+                          {!isAdminUnlocked && <Lock className="w-2.5 h-2.5 text-emerald-400/70 ml-0.5" />}
                         </button>
                       ) : (
                         <button
                           type="button"
                           onClick={() => handleSingleClickPayment(m.memberId, false, owedAmount)}
                           className="h-8.5 sm:h-9 px-3 sm:px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-600/30 transition-all cursor-pointer select-none"
-                          title="Click to mark as paid immediately"
+                          title={!isAdminUnlocked ? "Admin PIN required: click to mark as paid" : "Click to mark as paid immediately"}
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.6px]" />
                           <span>Mark Paid</span>
+                          {!isAdminUnlocked && <Lock className="w-2.5 h-2.5 text-white/80 ml-0.5" />}
                         </button>
                       )}
 
@@ -1039,13 +1048,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setCustomPaymentMemberId(m.memberId);
-                          const mOwed = isPaid || isExempt ? 0 : owedAmount;
-                          setCustomPaymentDefaultAmount(mOwed > 0 ? mOwed : undefined);
-                          setIsCustomPaymentModalOpen(true);
+                          requireAuth(() => {
+                            setCustomPaymentMemberId(m.memberId);
+                            const mOwed = isPaid || isExempt ? 0 : owedAmount;
+                            setCustomPaymentDefaultAmount(mOwed > 0 ? mOwed : undefined);
+                            setIsCustomPaymentModalOpen(true);
+                          });
                         }}
                         className="w-8.5 sm:w-9 h-8.5 sm:h-9 rounded-xl bg-slate-800/70 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                        title={isExempt ? "Record gift or personal contribution" : hasDonatedExtra ? "View or record additional contribution" : isPaid ? "View or record extra contribution" : "Enter custom amount / payment method"}
+                        title={!isAdminUnlocked ? "Admin PIN required to record payment" : (isExempt ? "Record gift or personal contribution" : hasDonatedExtra ? "View or record additional contribution" : isPaid ? "View or record extra contribution" : "Enter custom amount / payment method")}
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
                       </button>
@@ -1099,7 +1110,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           events={events}
           members={members}
           onSelectEvent={onSelectEvent}
-          onMarkPaid={markMemberPaid}
+          onMarkPaid={(eventId, memberId, paid) => {
+            requireAuth(() => {
+              markMemberPaid(eventId, memberId, paid);
+            });
+          }}
         />
       )}
     </div>

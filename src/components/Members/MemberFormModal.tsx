@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { Member } from '../../types';
-import { X, User, Phone, Shield, Trash2, Check } from 'lucide-react';
+import { X, User, Phone, Shield, Trash2, Check, Lock } from 'lucide-react';
 
 interface MemberFormModalProps {
   isOpen: boolean;
@@ -27,7 +27,7 @@ export const MemberFormModal: React.FC<MemberFormModalProps> = ({
   onClose,
   memberToEdit,
 }) => {
-  const { addMember, updateMember, deleteMember } = useFinance();
+  const { addMember, updateMember, deleteMember, requireAuth, isAdminUnlocked } = useFinance();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -60,33 +60,37 @@ export const MemberFormModal: React.FC<MemberFormModalProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
-    if (memberToEdit) {
-      updateMember(memberToEdit.id, {
-        name: name.trim(),
-        phone: phone.trim(),
-        role: role.trim(),
-        avatarColor,
-      });
-    } else {
-      addMember({
-        name: name.trim(),
-        phone: phone.trim(),
-        role: role.trim(),
-        avatarColor,
-      });
-    }
+    requireAuth(() => {
+      if (memberToEdit) {
+        updateMember(memberToEdit.id, {
+          name: name.trim(),
+          phone: phone.trim(),
+          role: role.trim(),
+          avatarColor,
+        });
+      } else {
+        addMember({
+          name: name.trim(),
+          phone: phone.trim(),
+          role: role.trim(),
+          avatarColor,
+        });
+      }
 
-    onClose();
+      onClose();
+    });
   };
 
   const handleDelete = () => {
     if (memberToEdit) {
-      const res = deleteMember(memberToEdit.id);
-      if (!res.success) {
-        setErrorMsg(res.message || 'Cannot delete this member.');
-      } else {
-        onClose();
-      }
+      requireAuth(() => {
+        const res = deleteMember(memberToEdit.id);
+        if (!res.success) {
+          setErrorMsg(res.message || 'Cannot delete this member.');
+        } else {
+          onClose();
+        }
+      });
     }
   };
 
@@ -245,9 +249,11 @@ export const MemberFormModal: React.FC<MemberFormModalProps> = ({
             </button>
             <button
               type="submit"
-              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-2xl shadow-md shadow-blue-600/30 transition-all active:scale-98"
+              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-2xl shadow-md shadow-blue-600/30 transition-all active:scale-98 flex items-center justify-center gap-1.5"
+              title={!isAdminUnlocked ? 'Admin PIN required to save' : undefined}
             >
-              {memberToEdit ? 'Save Changes' : 'Add Member'}
+              <span>{memberToEdit ? 'Save Changes' : 'Add Member'}</span>
+              {!isAdminUnlocked && <Lock className="w-3.5 h-3.5 text-blue-200" />}
             </button>
           </div>
         </form>

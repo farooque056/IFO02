@@ -17,6 +17,7 @@ import {
   Split,
   Users,
   Calculator,
+  Lock,
 } from 'lucide-react';
 
 interface ExpenseFormModalProps {
@@ -58,6 +59,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
     updateExpense,
     deleteExpense,
     addCategoryToEvent,
+    requireAuth,
+    isAdminUnlocked,
   } = useFinance();
 
   const [expenseTypeMode, setExpenseTypeMode] = useState<ExpenseTypeMode>('active_event');
@@ -265,37 +268,41 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
       (expenseTypeMode === 'other_expenses' ? 'General & Maintenance' : 'Miscellaneous');
     const numAmount = parseFloat(amount);
 
-    if (expenseToEdit) {
-      updateExpense(expenseToEdit.id, {
-        eventId: targetEventId,
-        name: name.trim(),
-        amount: numAmount,
-        category: finalCategory,
-        paymentMethod,
-        date,
-        paidById,
-        notes: notes.trim(),
-      });
-    } else {
-      addExpense({
-        eventId: targetEventId,
-        name: name.trim(),
-        amount: numAmount,
-        category: finalCategory,
-        paymentMethod,
-        date,
-        paidById,
-        notes: notes.trim(),
-      });
-    }
+    requireAuth(() => {
+      if (expenseToEdit) {
+        updateExpense(expenseToEdit.id, {
+          eventId: targetEventId,
+          name: name.trim(),
+          amount: numAmount,
+          category: finalCategory,
+          paymentMethod,
+          date,
+          paidById,
+          notes: notes.trim(),
+        });
+      } else {
+        addExpense({
+          eventId: targetEventId,
+          name: name.trim(),
+          amount: numAmount,
+          category: finalCategory,
+          paymentMethod,
+          date,
+          paidById,
+          notes: notes.trim(),
+        });
+      }
 
-    onClose();
+      onClose();
+    });
   };
 
   const handleDelete = () => {
     if (expenseToEdit) {
-      deleteExpense(expenseToEdit.id);
-      onClose();
+      requireAuth(() => {
+        deleteExpense(expenseToEdit.id);
+        onClose();
+      });
     }
   };
 

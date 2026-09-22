@@ -15,6 +15,7 @@ import {
   Heart,
   Gift,
   Coins,
+  Lock,
 } from 'lucide-react';
 
 interface RecordMemberPaymentModalProps {
@@ -42,6 +43,8 @@ export const RecordMemberPaymentModal: React.FC<RecordMemberPaymentModalProps> =
     addTransaction,
     markMemberPaid,
     addCategoryToEvent,
+    requireAuth,
+    isAdminUnlocked,
   } = useFinance();
 
   const enrolledMembers = members.filter((m) => event.memberIds.includes(m.id));
@@ -143,52 +146,54 @@ export const RecordMemberPaymentModal: React.FC<RecordMemberPaymentModalProps> =
     if (!numAmount || numAmount <= 0) return;
     if (!selectedMemberId) return;
 
-    if (recordType === 'settlement') {
-      const selectedMember = members.find((m) => m.id === selectedMemberId);
+    requireAuth(() => {
+      if (recordType === 'settlement') {
+        const selectedMember = members.find((m) => m.id === selectedMemberId);
 
-      // 1. Mark member as settled on the event
-      markMemberPaid(event.id, selectedMemberId, true);
+        // 1. Mark member as settled on the event
+        markMemberPaid(event.id, selectedMemberId, true);
 
-      // 2. Persist real contribution transaction to Firestore & ledger for live cross-device sync
-      addTransaction({
-        event: event.name,
-        eventId: event.id,
-        date: date,
-        transactionType: 'Contribution',
-        nameOrCategory: selectedMember?.name || 'Member Contribution',
-        amount: numAmount,
-        paymentStatus: 'Paid',
-        notes: notes.trim() || `Event contribution share for ${event.name}`,
-        memberId: selectedMemberId,
-        paymentMethod: paymentMethod,
-      });
-      
-      // 3. If credited to group fund treasury, increment total collected revenue
-      if (addToTreasury) {
-        setTotalCollected(totalCollected + numAmount);
+        // 2. Persist real contribution transaction to Firestore & ledger for live cross-device sync
+        addTransaction({
+          event: event.name,
+          eventId: event.id,
+          date: date,
+          transactionType: 'Contribution',
+          nameOrCategory: selectedMember?.name || 'Member Contribution',
+          amount: numAmount,
+          paymentStatus: 'Paid',
+          notes: notes.trim() || `Event contribution share for ${event.name}`,
+          memberId: selectedMemberId,
+          paymentMethod: paymentMethod,
+        });
+        
+        // 3. If credited to group fund treasury, increment total collected revenue
+        if (addToTreasury) {
+          setTotalCollected(totalCollected + numAmount);
+        }
+      } else {
+        // Out-of-pocket expense bill incurred for the event
+        const selectedMember = members.find((m) => m.id === selectedMemberId);
+        const finalTitle = paymentTitle.trim() || `Event Expense - ${selectedMember?.name || 'Member'}`;
+
+        if (!event.categories.includes(category)) {
+          addCategoryToEvent(event.id, category);
+        }
+
+        addExpense({
+          eventId: event.id,
+          name: finalTitle,
+          category: category,
+          amount: numAmount,
+          date: date,
+          paidById: selectedMemberId,
+          paymentMethod: paymentMethod,
+          notes: notes.trim() ? notes.trim() : `Expense bill paid by ${selectedMember?.name || 'Member'}`,
+        });
       }
-    } else {
-      // Out-of-pocket expense bill incurred for the event
-      const selectedMember = members.find((m) => m.id === selectedMemberId);
-      const finalTitle = paymentTitle.trim() || `Event Expense - ${selectedMember?.name || 'Member'}`;
 
-      if (!event.categories.includes(category)) {
-        addCategoryToEvent(event.id, category);
-      }
-
-      addExpense({
-        eventId: event.id,
-        name: finalTitle,
-        category: category,
-        amount: numAmount,
-        date: date,
-        paidById: selectedMemberId,
-        paymentMethod: paymentMethod,
-        notes: notes.trim() ? notes.trim() : `Expense bill paid by ${selectedMember?.name || 'Member'}`,
-      });
-    }
-
-    onClose();
+      onClose();
+    });
   };
 
   const selectedMember = members.find((m) => m.id === selectedMemberId);
@@ -546,9 +551,11 @@ export const RecordMemberPaymentModal: React.FC<RecordMemberPaymentModalProps> =
             <button
               type="submit"
               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
+              title={!isAdminUnlocked ? 'Admin PIN required to save payment' : undefined}
             >
               <Check className="w-4 h-4 stroke-[2.8px]" />
-              {recordType === 'settlement' ? 'Clear Due & Mark Settled' : 'Save Event Expense'}
+              <span>{recordType === 'settlement' ? 'Clear Due & Mark Settled' : 'Save Event Expense'}</span>
+              {!isAdminUnlocked && <Lock className="w-3 h-3 text-white/80 ml-0.5" />}
             </button>
           </div>
         </form>

@@ -209,76 +209,78 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
     const parsedTarget = splitMode === 'even' && parsedTargetSplit > 0 ? parsedTargetSplit : undefined;
     const parsedMin = splitMode === 'minimum' && parsedMinimumAmount > 0 ? parsedMinimumAmount : undefined;
 
-    if (eventToEdit) {
-      const existingSettled = eventToEdit.settledMemberIds || [];
-      const updatedSettled = actualWeddingPersonId && !existingSettled.includes(actualWeddingPersonId)
-        ? [...existingSettled, actualWeddingPersonId]
-        : existingSettled;
+    requireAuth(() => {
+      if (eventToEdit) {
+        const existingSettled = eventToEdit.settledMemberIds || [];
+        const updatedSettled = actualWeddingPersonId && !existingSettled.includes(actualWeddingPersonId)
+          ? [...existingSettled, actualWeddingPersonId]
+          : existingSettled;
 
-      updateEvent(eventToEdit.id, {
-        name: resolvedName,
-        type,
-        date,
-        location: location.trim(),
-        status,
-        weddingPersonId: actualWeddingPersonId,
-        exemptMemberIds: actualExemptIds,
-        settledMemberIds: updatedSettled,
-        memberIds: selectedMemberIds,
-        categories,
-        splitMode,
-        targetSplitAmount: parsedTarget,
-        minimumAmountPerPerson: parsedMin,
-        notes: notes.trim(),
-      });
-
-      // If an extra amount was entered while editing, record it as an expense
-      if (parsedAmount > 0) {
-        addExpense({
-          eventId: eventToEdit.id,
-          name: initialExpenseTitle.trim() || `${resolvedName} - Additional Expense`,
-          category: initialExpenseCategory || categories[0] || 'Event Budget',
-          amount: parsedAmount,
+        updateEvent(eventToEdit.id, {
+          name: resolvedName,
+          type,
           date,
-          paidById,
-          paymentMethod,
-          notes: notes ? `${notes} (Added during event edit)` : `Expense split among ${splittingCount} participating members`,
+          location: location.trim(),
+          status,
+          weddingPersonId: actualWeddingPersonId,
+          exemptMemberIds: actualExemptIds,
+          settledMemberIds: updatedSettled,
+          memberIds: selectedMemberIds,
+          categories,
+          splitMode,
+          targetSplitAmount: parsedTarget,
+          minimumAmountPerPerson: parsedMin,
+          notes: notes.trim(),
         });
-      }
-    } else {
-      const newEventId = addEvent({
-        name: resolvedName,
-        type,
-        date,
-        location: location.trim(),
-        status,
-        weddingPersonId: actualWeddingPersonId,
-        exemptMemberIds: actualExemptIds,
-        settledMemberIds: actualWeddingPersonId ? [actualWeddingPersonId] : [],
-        memberIds: selectedMemberIds,
-        categories: categories.length > 0 ? categories : EVENT_TYPE_CATEGORIES[type],
-        splitMode,
-        targetSplitAmount: parsedTarget,
-        minimumAmountPerPerson: parsedMin,
-        notes: notes.trim(),
-      });
 
-      // If initial amount is provided, automatically add initial expense record
-      if (parsedAmount > 0 && newEventId) {
-        addExpense({
-          eventId: newEventId,
-          name: initialExpenseTitle.trim() || `${resolvedName} - Initial Budget / Cost`,
-          category: initialExpenseCategory || categories[0] || 'Event Budget',
-          amount: parsedAmount,
+        // If an extra amount was entered while editing, record it as an expense
+        if (parsedAmount > 0) {
+          addExpense({
+            eventId: eventToEdit.id,
+            name: initialExpenseTitle.trim() || `${resolvedName} - Additional Expense`,
+            category: initialExpenseCategory || categories[0] || 'Event Budget',
+            amount: parsedAmount,
+            date,
+            paidById,
+            paymentMethod,
+            notes: notes ? `${notes} (Added during event edit)` : `Expense split among ${splittingCount} participating members`,
+          });
+        }
+      } else {
+        const newEventId = addEvent({
+          name: resolvedName,
+          type,
           date,
-          paidById,
-          paymentMethod,
-          notes: notes ? `${notes} (Initial Event Amount)` : `Initial event amount split among ${splittingCount} participating members`,
+          location: location.trim(),
+          status,
+          weddingPersonId: actualWeddingPersonId,
+          exemptMemberIds: actualExemptIds,
+          settledMemberIds: actualWeddingPersonId ? [actualWeddingPersonId] : [],
+          memberIds: selectedMemberIds,
+          categories: categories.length > 0 ? categories : EVENT_TYPE_CATEGORIES[type],
+          splitMode,
+          targetSplitAmount: parsedTarget,
+          minimumAmountPerPerson: parsedMin,
+          notes: notes.trim(),
         });
-      }
-    }
 
-    onClose();
+        // If initial amount is provided, automatically add initial expense record
+        if (parsedAmount > 0 && newEventId) {
+          addExpense({
+            eventId: newEventId,
+            name: initialExpenseTitle.trim() || `${resolvedName} - Initial Budget / Cost`,
+            category: initialExpenseCategory || categories[0] || 'Event Budget',
+            amount: parsedAmount,
+            date,
+            paidById,
+            paymentMethod,
+            notes: notes ? `${notes} (Initial Event Amount)` : `Initial event amount split among ${splittingCount} participating members`,
+          });
+        }
+      }
+
+      onClose();
+    });
   };
 
   const handleDelete = () => {

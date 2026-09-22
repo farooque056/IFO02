@@ -13,9 +13,11 @@ import {
   ChevronRight,
   Send,
   UserCheck,
+  Lock,
 } from 'lucide-react';
 import { formatINR, formatDate } from '../../utils/formatters';
 import { EventItem, Member } from '../../types';
+import { useFinance } from '../../context/FinanceContext';
 
 export interface PendingItem {
   eventId: string;
@@ -48,6 +50,7 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
   onSelectEvent,
   onMarkPaid,
 }) => {
+  const { requireAuth, isAdminUnlocked } = useFinance();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEventFilter, setSelectedEventFilter] = useState<string>('all');
   const [copiedNotification, setCopiedNotification] = useState(false);
@@ -187,17 +190,21 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
   };
 
   const handleQuickMarkPaid = (eventId: string, memberId: string, memberName: string, eventName: string) => {
-    onMarkPaid(eventId, memberId, true);
-    setActionSuccessText(`✓ Marked ${memberName} as Paid for "${eventName}"`);
-    setTimeout(() => setActionSuccessText(null), 3000);
+    requireAuth(() => {
+      onMarkPaid(eventId, memberId, true);
+      setActionSuccessText(`✓ Marked ${memberName} as Paid for "${eventName}"`);
+      setTimeout(() => setActionSuccessText(null), 3000);
+    });
   };
 
   const handleMarkAllForMember = (group: { memberId: string; memberName: string; records: PendingItem[] }) => {
-    group.records.forEach((r) => {
-      onMarkPaid(r.eventId, group.memberId, true);
+    requireAuth(() => {
+      group.records.forEach((r) => {
+        onMarkPaid(r.eventId, group.memberId, true);
+      });
+      setActionSuccessText(`✓ Settle All: Marked ${group.memberName} as Paid for ${group.records.length} events!`);
+      setTimeout(() => setActionSuccessText(null), 3000);
     });
-    setActionSuccessText(`✓ Settle All: Marked ${group.memberName} as Paid for ${group.records.length} events!`);
-    setTimeout(() => setActionSuccessText(null), 3000);
   };
 
   if (!isOpen) return null;
@@ -401,10 +408,11 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                           type="button"
                           onClick={() => handleMarkAllForMember(group)}
                           className="py-1.5 px-2.5 rounded-xl bg-blue-950/80 hover:bg-blue-900 border border-blue-700/80 text-blue-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                          title="Mark paid for all events this member owes"
+                          title={!isAdminUnlocked ? "Admin PIN required to settle all" : "Mark paid for all events this member owes"}
                         >
                           <UserCheck className="w-3.5 h-3.5 stroke-[2.2px]" />
                           <span>Settle All</span>
+                          {!isAdminUnlocked && <Lock className="w-2.5 h-2.5 text-blue-400/80 ml-0.5" />}
                         </button>
                       )}
                     </div>
@@ -448,10 +456,11 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                               handleQuickMarkPaid(rec.eventId, group.memberId, group.memberName, rec.eventName)
                             }
                             className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-xs"
-                            title={`Mark ${group.memberName} as paid for ${rec.eventName}`}
+                            title={!isAdminUnlocked ? "Admin PIN required to mark paid" : `Mark ${group.memberName} as paid for ${rec.eventName}`}
                           >
                             <Check className="w-3 h-3 stroke-[2.8px]" />
                             <span>Mark Paid</span>
+                            {!isAdminUnlocked && <Lock className="w-2.5 h-2.5 text-white/80 ml-0.5" />}
                           </button>
 
                           {/* View Event Button */}
