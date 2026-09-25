@@ -11,6 +11,7 @@ import {
   CloudSyncStatus,
   ensureDatabaseSeeded,
   subscribeToCloudSync,
+  fetchLatestFromCloud,
   saveMemberCloud,
   deleteMemberCloud,
   saveEventCloud,
@@ -47,6 +48,8 @@ interface FinanceContextType {
   cloudSyncStatus: CloudSyncStatus;
   lastCloudSync: Date | null;
   forceSyncToCloud: () => Promise<void>;
+  pullLatestFromCloud: () => Promise<boolean>;
+  isPullingCloud: boolean;
   
   // Navigation & View Actions
   setActiveTab: (tab: TabType) => void;
@@ -332,19 +335,32 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (isMounted && cloudEvents) {
           const normalized = cloudEvents.map((e) => {
             let updated = { ...e };
-            if (updated.id === 'ev_taawun_2026' || updated.name?.toLowerCase().includes('taawun')) {
-              updated.splitMode = 'minimum';
-              updated.minimumAmountPerPerson = updated.minimumAmountPerPerson || 2000;
-            } else if (updated.id === 'ev_iftar_2026' || updated.name?.toLowerCase().includes('iftar')) {
-              updated.splitMode = updated.splitMode || 'minimum';
-              updated.minimumAmountPerPerson = updated.minimumAmountPerPerson || 500;
-            } else if (updated.id === 'ev_premier_league_2026' || updated.name?.toLowerCase().includes('premier league')) {
-              updated.splitMode = updated.splitMode || 'minimum';
-              updated.minimumAmountPerPerson = updated.minimumAmountPerPerson || 300;
-            } else if (updated.id === 'ev_ameen_wedding' || updated.name?.toLowerCase().includes("ameen's wedding")) {
-              updated.splitMode = updated.splitMode || 'even';
-              updated.targetSplitAmount = updated.targetSplitAmount || 32000;
-              updated.weddingPersonId = updated.weddingPersonId || 'm3';
+            // Only assign fallback splitMode if not already defined
+            if (!updated.splitMode) {
+              if (updated.id === 'ev_taawun_2026' || updated.name?.toLowerCase().includes('taawun')) {
+                updated.splitMode = 'minimum';
+              } else if (updated.id === 'ev_iftar_2026' || updated.name?.toLowerCase().includes('iftar')) {
+                updated.splitMode = 'minimum';
+              } else if (updated.id === 'ev_premier_league_2026' || updated.name?.toLowerCase().includes('premier league')) {
+                updated.splitMode = 'minimum';
+              } else if (updated.id === 'ev_ameen_wedding' || updated.name?.toLowerCase().includes("ameen's wedding")) {
+                updated.splitMode = 'even';
+              }
+            }
+            if (updated.splitMode === 'minimum' && !updated.minimumAmountPerPerson) {
+              if (updated.id === 'ev_taawun_2026' || updated.name?.toLowerCase().includes('taawun')) {
+                updated.minimumAmountPerPerson = 2000;
+              } else if (updated.id === 'ev_iftar_2026' || updated.name?.toLowerCase().includes('iftar')) {
+                updated.minimumAmountPerPerson = 500;
+              } else if (updated.id === 'ev_premier_league_2026' || updated.name?.toLowerCase().includes('premier league')) {
+                updated.minimumAmountPerPerson = 300;
+              }
+            }
+            if (updated.splitMode === 'even' && !updated.targetSplitAmount) {
+              if (updated.id === 'ev_ameen_wedding' || updated.name?.toLowerCase().includes("ameen's wedding")) {
+                updated.targetSplitAmount = 32000;
+                updated.weddingPersonId = updated.weddingPersonId || 'm3';
+              }
             }
             return updated;
           });
@@ -412,28 +428,91 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  const forceSyncToCloud = async () => {
+  const [isPullingCloud, setIsPullingCloud] = useState<boolean>(false);
+
+  /**
+   * Pulls the absolute freshest state from Firestore server across all collections
+   * and updates local state + localStorage so edits from any phone appear instantly.
+   */
+  const pullLatestFromCloud = async (): Promise<boolean> => {
+    setIsPullingCloud(true);
     setCloudSyncStatus('syncing');
     try {
-      // Force sync pushes current application state to Firestore - NEVER wipes or resets data
-      await ensureDatabaseSeeded(
-        {
-          members,
-          events,
-          expenses,
-          transactions,
-          openingBalance,
-          customTotalCollected,
-        },
-        true
-      );
+      const data = await fetchLatestFromCloud();
+      if (data.members && data.members.length > 0) {
+        setMembers(data.members);
+      }
+      if (data.events && data.events.length > 0) {
+        const normalized = data.events.map((e) => {
+          let updated = { ...e };
+          if (!updated.splitMode) {
+            if (updated.id === 'ev_taawun_2026' || updated.name?.toLowerCase().includes('taawun')) {
+              updated.splitMode = 'minimum';
+            } else if (updated.id === 'ev_iftar_2026' || updated.name?.toLowerCase().includes('iftar')) {
+              updated.splitMode = 'minimum';
+            } else if (updated.id === 'ev_premier_league_2026' || updated.name?.toLowerCase().includes('premier league')) {
+              updated.splitMode = 'minimum';
+            } else if (updated.id === 'ev_ameen_wedding' || updated.name?.toLowerCase().includes("ameen's wedding")) {
+              updated.splitMode = 'even';
+            }
+          }
+          return updated;
+        });
+        setEvents(normalized);
+      }
+      if (data.expenses && data.expenses.length > 0) {
+        setExpenses(data.expenses);
+      }
+      if (data.transactions && data.transactions.length > 0) {
+        setTransactions(data.transactions);
+      }
+      if (data.settings) {
+        setOpeningBalanceState(data.settings.openingBalance ?? 7911);
+        if (data.settings.customTotalCollected === 73000 || data.settings.customTotalCollected === 72700) {
+          setCustomTotalCollected(null);
+        } else {
+          setCustomTotalCollected(data.settings.customTotalCollected ?? null);
+        }
+      }
       setCloudSyncStatus('connected');
       setLastCloudSync(new Date());
+      setIsPullingCloud(false);
+      return true;
     } catch (err) {
-      console.error('Error force syncing:', err);
+      console.warn('Failed pulling latest cloud data:', err);
       setCloudSyncStatus('error');
+      setIsPullingCloud(false);
+      return false;
     }
   };
+
+  const forceSyncToCloud = async () => {
+    await pullLatestFromCloud();
+  };
+
+  // Periodic heartbeat pull (every 25 seconds when visible) so mobile browsers never lag
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchLatestFromCloud()
+          .then((data) => {
+            if (data.members.length > 0) setMembers(data.members);
+            if (data.events.length > 0) setEvents(data.events);
+            if (data.expenses.length > 0) setExpenses(data.expenses);
+            if (data.transactions.length > 0) setTransactions(data.transactions);
+            if (data.settings) {
+              setOpeningBalanceState(data.settings.openingBalance ?? 7911);
+              if (data.settings.customTotalCollected !== 73000 && data.settings.customTotalCollected !== 72700) {
+                setCustomTotalCollected(data.settings.customTotalCollected ?? null);
+              }
+            }
+            setLastCloudSync(new Date());
+          })
+          .catch(() => {});
+      }
+    }, 25000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Persist to localStorage
   useEffect(() => {
@@ -592,16 +671,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateEvent = (id: string, eventData: Partial<EventItem>) => {
     requireAuth(() => {
+      let updatedToSave: EventItem | null = null;
       setEvents((prev) =>
         prev.map((ev) => {
           if (ev.id === id) {
             const updatedEv = { ...ev, ...eventData };
-            saveEventCloud(updatedEv).catch((err) => console.error('Cloud update event error:', err));
+            updatedToSave = updatedEv;
             return updatedEv;
           }
           return ev;
         })
       );
+      if (updatedToSave) {
+        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud update event error:', err));
+      }
     });
   };
 
@@ -624,6 +707,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addCategoryToEvent = (eventId: string, categoryName: string) => {
     if (!categoryName.trim()) return;
+    let updatedToSave: EventItem | null = null;
     setEvents((prev) =>
       prev.map((ev) => {
         if (ev.id === eventId) {
@@ -633,15 +717,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ...ev,
             categories: [...currentCats, categoryName.trim()],
           };
-          saveEventCloud(updatedEv).catch((err) => console.error('Cloud add category error:', err));
+          updatedToSave = updatedEv;
           return updatedEv;
         }
         return ev;
       })
     );
+    if (updatedToSave) {
+      saveEventCloud(updatedToSave).catch((err) => console.error('Cloud add category error:', err));
+    }
   };
 
   const removeCategoryFromEvent = (eventId: string, categoryName: string) => {
+    let updatedToSave: EventItem | null = null;
     setEvents((prev) =>
       prev.map((ev) => {
         if (ev.id === eventId) {
@@ -649,16 +737,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ...ev,
             categories: (ev.categories || []).filter((c) => c !== categoryName),
           };
-          saveEventCloud(updatedEv).catch((err) => console.error('Cloud remove category error:', err));
+          updatedToSave = updatedEv;
           return updatedEv;
         }
         return ev;
       })
     );
+    if (updatedToSave) {
+      saveEventCloud(updatedToSave).catch((err) => console.error('Cloud remove category error:', err));
+    }
   };
 
   const markMemberPaid = (eventId: string, memberId: string, isPaid: boolean = true) => {
     requireAuth(() => {
+      let updatedToSave: EventItem | null = null;
       setEvents((prev) =>
         prev.map((ev) => {
           if (ev.id !== eventId) return ev;
@@ -672,15 +764,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ...ev,
             settledMemberIds: Array.from(currentSettled),
           };
-          saveEventCloud(updatedEv).catch((err) => console.error('Cloud mark paid error:', err));
+          updatedToSave = updatedEv;
           return updatedEv;
         })
       );
+      if (updatedToSave) {
+        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud mark paid error:', err));
+      }
     });
   };
 
   const toggleMemberSettled = (eventId: string, memberId: string) => {
     requireAuth(() => {
+      let updatedToSave: EventItem | null = null;
       setEvents((prev) =>
         prev.map((ev) => {
           if (ev.id !== eventId) return ev;
@@ -694,10 +790,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ...ev,
             settledMemberIds: Array.from(currentSettled),
           };
-          saveEventCloud(updatedEv).catch((err) => console.error('Cloud toggle settled error:', err));
+          updatedToSave = updatedEv;
           return updatedEv;
         })
       );
+      if (updatedToSave) {
+        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud toggle settled error:', err));
+      }
     });
   };
 
@@ -738,16 +837,46 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateExpense = (id: string, expenseData: Partial<Expense>) => {
     requireAuth(() => {
+      let updatedExpToSave: Expense | null = null;
       setExpenses((prev) =>
         prev.map((exp) => {
           if (exp.id === id) {
             const updatedExp = { ...exp, ...expenseData };
-            saveExpenseCloud(updatedExp).catch((err) => console.error('Cloud update expense error:', err));
+            updatedExpToSave = updatedExp;
             return updatedExp;
           }
           return exp;
         })
       );
+
+      // Keep ledger transaction in sync with edited expense
+      let updatedTxToSave: TransactionRecord | undefined = undefined;
+      if (updatedExpToSave) {
+        const targetExp: Expense = updatedExpToSave;
+        setTransactions((prev) =>
+          prev.map((tx) => {
+            const matchesId = targetExp.receiptNo && tx.transactionId === targetExp.receiptNo;
+            const matchesEvent = tx.eventId === targetExp.eventId && tx.nameOrCategory === targetExp.name;
+            if (matchesId || matchesEvent) {
+              const updatedTx: TransactionRecord = {
+                ...tx,
+                nameOrCategory: targetExp.name,
+                amount: targetExp.amount,
+                date: targetExp.date,
+                category: targetExp.category,
+                paymentMethod: targetExp.paymentMethod,
+                memberId: targetExp.paidById !== 'fund' ? targetExp.paidById : undefined,
+              };
+              updatedTxToSave = updatedTx;
+              return updatedTx;
+            }
+            return tx;
+          })
+        );
+        saveExpenseCloud(targetExp, updatedTxToSave).catch((err) =>
+          console.error('Cloud update expense error:', err)
+        );
+      }
     });
   };
 
@@ -776,16 +905,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateTransaction = (transactionId: string, txData: Partial<TransactionRecord>) => {
     requireAuth(() => {
+      let updatedTxToSave: TransactionRecord | null = null;
       setTransactions((prev) =>
         prev.map((tx) => {
           if (tx.transactionId === transactionId) {
             const updatedTx = { ...tx, ...txData };
-            saveTransactionCloud(updatedTx).catch((err) => console.error('Cloud update transaction error:', err));
+            updatedTxToSave = updatedTx;
             return updatedTx;
           }
           return tx;
         })
       );
+      if (updatedTxToSave) {
+        saveTransactionCloud(updatedTxToSave).catch((err) => console.error('Cloud update transaction error:', err));
+      }
     });
   };
 
@@ -815,16 +948,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateMember = (id: string, memberData: Partial<Member>) => {
     requireAuth(() => {
+      let updatedMemberToSave: Member | null = null;
       setMembers((prev) =>
         prev.map((m) => {
           if (m.id === id) {
             const updatedM = { ...m, ...memberData };
-            saveMemberCloud(updatedM).catch((err) => console.error('Cloud update member error:', err));
+            updatedMemberToSave = updatedM;
             return updatedM;
           }
           return m;
         })
       );
+      if (updatedMemberToSave) {
+        saveMemberCloud(updatedMemberToSave).catch((err) => console.error('Cloud update member error:', err));
+      }
     });
   };
 
@@ -1011,6 +1148,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         cloudSyncStatus,
         lastCloudSync,
         forceSyncToCloud,
+        pullLatestFromCloud,
+        isPullingCloud,
         setActiveTab,
         setSelectedEventId,
         setSearchQuery,

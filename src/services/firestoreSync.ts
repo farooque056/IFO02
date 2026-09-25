@@ -5,6 +5,8 @@ import {
   deleteDoc,
   getDoc,
   getDocs,
+  getDocsFromServer,
+  getDocFromServer,
   onSnapshot,
   writeBatch,
   Unsubscribe,
@@ -162,7 +164,88 @@ export async function ensureDatabaseSeeded(
 }
 
 /**
- * Real-time subscribers for global state
+ * Explicit one-shot pull from Firestore server to ensure immediate cross-device sync.
+ * Queries Firestore server directly so any changes made on other phones are instantly fetched.
+ */
+export async function fetchLatestFromCloud(): Promise<{
+  members: Member[];
+  events: EventItem[];
+  expenses: Expense[];
+  transactions: TransactionRecord[];
+  settings: CloudSettings | null;
+}> {
+  try {
+    let membersSnap, eventsSnap, expensesSnap, txSnap, settingsSnap;
+    try {
+      [membersSnap, eventsSnap, expensesSnap, txSnap, settingsSnap] = await Promise.all([
+        getDocsFromServer(collection(db, 'members')),
+        getDocsFromServer(collection(db, 'events')),
+        getDocsFromServer(collection(db, 'expenses')),
+        getDocsFromServer(collection(db, 'transactions')),
+        getDocFromServer(doc(db, 'settings', 'global')),
+      ]);
+    } catch {
+      // Fallback to cache/standard read if server long-polling is temporarily interrupted
+      [membersSnap, eventsSnap, expensesSnap, txSnap, settingsSnap] = await Promise.all([
+        getDocs(collection(db, 'members')),
+        getDocs(collection(db, 'events')),
+        getDocs(collection(db, 'expenses')),
+        getDocs(collection(db, 'transactions')),
+        getDoc(doc(db, 'settings', 'global')),
+      ]);
+    }
+
+    const membersList: Member[] = [];
+    membersSnap.forEach((d) => membersList.push(d.data() as Member));
+    membersList.sort((a, b) => {
+      const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(b.id.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    });
+
+    const eventsList: EventItem[] = [];
+    eventsSnap.forEach((d) => eventsList.push(d.data() as EventItem));
+    eventsList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const expensesList: Expense[] = [];
+    expensesSnap.forEach((d) => expensesList.push(d.data() as Expense));
+    expensesList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const txList: TransactionRecord[] = [];
+    txSnap.forEach((d) => txList.push(d.data() as TransactionRecord));
+    txList.sort((a, b) => {
+      const numA = parseInt(a.transactionId.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(b.transactionId.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    });
+
+    let settingsData: CloudSettings | null = null;
+    if (settingsSnap.exists()) {
+      const s = settingsSnap.data() as CloudSettings;
+      settingsData = {
+        openingBalance: typeof s.openingBalance === 'number' ? s.openingBalance : 7911,
+        customTotalCollected: s.customTotalCollected ?? null,
+        updatedAt: s.updatedAt,
+        seeded: s.seeded,
+      };
+    }
+
+    return {
+      members: membersList,
+      events: eventsList,
+      expenses: expensesList,
+      transactions: txList,
+      settings: settingsData,
+    };
+  } catch (error) {
+    console.error('Error fetching latest from cloud:', error);
+    throw error;
+  }
+}
+
+/**
+ * Real-time subscribers for global state across all phones.
+ * Automatically recovers from mobile background sleep, network switches, and errors.
  */
 export function subscribeToCloudSync(callbacks: {
   onMembers: (members: Member[]) => void;
@@ -172,20 +255,46 @@ export function subscribeToCloudSync(callbacks: {
   onSettings: (settings: CloudSettings) => void;
   onStatusChange: (status: CloudSyncStatus) => void;
 }): Unsubscribe {
-  const unsubscribers: Unsubscribe[] = [];
-  callbacks.onStatusChange('syncing');
+  let unsubscribers: Unsubscribe[] = [];
+  let isSubscribed = true;
+  let retryTimeoutId: any = null;
 
-  try {
-    // 1. Members listener
-    const unsubMembers = onSnapshot(
-      collection(db, 'members'),
-      (snapshot) => {
-        if (!snapshot.empty) {
+  const startListeners = () => {
+    // Teardown previous listeners before rebinding
+    unsubscribers.forEach((u) => {
+      try {
+        u();
+      } catch {}
+    });
+    unsubscribers = [];
+
+    callbacks.onStatusChange('syncing');
+
+    const handleListenerError = (colName: string, err: any) => {
+      console.warn(`${colName} cloud subscription error:`, err);
+      if (!isSubscribed) return;
+      callbacks.onStatusChange('error');
+      // Automatic recovery after connection glitch or mobile sleep
+      if (!retryTimeoutId) {
+        retryTimeoutId = setTimeout(() => {
+          retryTimeoutId = null;
+          if (isSubscribed) {
+            console.log(`Re-establishing real-time cloud listeners for ${colName}...`);
+            startListeners();
+          }
+        }, 3500);
+      }
+    };
+
+    try {
+      // 1. Members listener
+      const unsubMembers = onSnapshot(
+        collection(db, 'members'),
+        (snapshot) => {
           const membersList: Member[] = [];
           snapshot.forEach((docSnap) => {
             membersList.push(docSnap.data() as Member);
           });
-          // Preserve stable numerical order if id matches m1, m2...
           membersList.sort((a, b) => {
             const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
             const numB = parseInt(b.id.replace(/\D/g, ''), 10) || 0;
@@ -193,69 +302,51 @@ export function subscribeToCloudSync(callbacks: {
           });
           callbacks.onMembers(membersList);
           callbacks.onStatusChange('connected');
-        }
-      },
-      (err) => {
-        console.warn('Members cloud subscription error:', err);
-        callbacks.onStatusChange('error');
-      }
-    );
-    unsubscribers.push(unsubMembers);
+        },
+        (err) => handleListenerError('Members', err)
+      );
+      unsubscribers.push(unsubMembers);
 
-    // 2. Events listener
-    const unsubEvents = onSnapshot(
-      collection(db, 'events'),
-      (snapshot) => {
-        if (!snapshot.empty) {
+      // 2. Events listener
+      const unsubEvents = onSnapshot(
+        collection(db, 'events'),
+        (snapshot) => {
           const eventsList: EventItem[] = [];
           snapshot.forEach((docSnap) => {
             eventsList.push(docSnap.data() as EventItem);
           });
-          // Sort events chronologically descending (latest first)
           eventsList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callbacks.onEvents(eventsList);
           callbacks.onStatusChange('connected');
-        }
-      },
-      (err) => {
-        console.warn('Events cloud subscription error:', err);
-        callbacks.onStatusChange('error');
-      }
-    );
-    unsubscribers.push(unsubEvents);
+        },
+        (err) => handleListenerError('Events', err)
+      );
+      unsubscribers.push(unsubEvents);
 
-    // 3. Expenses listener
-    const unsubExpenses = onSnapshot(
-      collection(db, 'expenses'),
-      (snapshot) => {
-        if (!snapshot.empty) {
+      // 3. Expenses listener
+      const unsubExpenses = onSnapshot(
+        collection(db, 'expenses'),
+        (snapshot) => {
           const expensesList: Expense[] = [];
           snapshot.forEach((docSnap) => {
             expensesList.push(docSnap.data() as Expense);
           });
-          // Sort by creation or date descending
           expensesList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callbacks.onExpenses(expensesList);
           callbacks.onStatusChange('connected');
-        }
-      },
-      (err) => {
-        console.warn('Expenses cloud subscription error:', err);
-        callbacks.onStatusChange('error');
-      }
-    );
-    unsubscribers.push(unsubExpenses);
+        },
+        (err) => handleListenerError('Expenses', err)
+      );
+      unsubscribers.push(unsubExpenses);
 
-    // 4. Transactions listener
-    const unsubTransactions = onSnapshot(
-      collection(db, 'transactions'),
-      (snapshot) => {
-        if (!snapshot.empty) {
+      // 4. Transactions listener
+      const unsubTransactions = onSnapshot(
+        collection(db, 'transactions'),
+        (snapshot) => {
           const txList: TransactionRecord[] = [];
           snapshot.forEach((docSnap) => {
             txList.push(docSnap.data() as TransactionRecord);
           });
-          // Sort by transactionId (TX001, TX002...) or date
           txList.sort((a, b) => {
             const numA = parseInt(a.transactionId.replace(/\D/g, ''), 10) || 0;
             const numB = parseInt(b.transactionId.replace(/\D/g, ''), 10) || 0;
@@ -263,47 +354,73 @@ export function subscribeToCloudSync(callbacks: {
           });
           callbacks.onTransactions(txList);
           callbacks.onStatusChange('connected');
-        }
-      },
-      (err) => {
-        console.warn('Transactions cloud subscription error:', err);
-        callbacks.onStatusChange('error');
-      }
-    );
-    unsubscribers.push(unsubTransactions);
+        },
+        (err) => handleListenerError('Transactions', err)
+      );
+      unsubscribers.push(unsubTransactions);
 
-    // 5. Settings listener
-    const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'global'),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data() as CloudSettings;
-          callbacks.onSettings({
-            openingBalance: typeof data.openingBalance === 'number' ? data.openingBalance : 7911,
-            customTotalCollected: data.customTotalCollected ?? null,
-            updatedAt: data.updatedAt,
-            seeded: data.seeded,
-          });
-          callbacks.onStatusChange('connected');
-        }
-      },
-      (err) => {
-        console.warn('Settings cloud subscription error:', err);
-      }
-    );
-    unsubscribers.push(unsubSettings);
+      // 5. Settings listener
+      const unsubSettings = onSnapshot(
+        doc(db, 'settings', 'global'),
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data() as CloudSettings;
+            callbacks.onSettings({
+              openingBalance: typeof data.openingBalance === 'number' ? data.openingBalance : 7911,
+              customTotalCollected: data.customTotalCollected ?? null,
+              updatedAt: data.updatedAt,
+              seeded: data.seeded,
+            });
+            callbacks.onStatusChange('connected');
+          }
+        },
+        (err) => handleListenerError('Settings', err)
+      );
+      unsubscribers.push(unsubSettings);
+    } catch (e) {
+      console.error('Error starting cloud sync listeners:', e);
+      callbacks.onStatusChange('error');
+    }
+  };
 
-  } catch (e) {
-    console.error('Error starting cloud sync listeners:', e);
-    callbacks.onStatusChange('error');
+  startListeners();
+
+  // Mobile OS lifecycle events: when user unlocks phone or switches back to tab
+  const onVisibilityOrFocus = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible' && isSubscribed) {
+      startListeners();
+    }
+  };
+
+  const onOnline = () => {
+    if (isSubscribed) {
+      startListeners();
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onVisibilityOrFocus);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    }
   }
 
   return () => {
+    isSubscribed = false;
+    if (retryTimeoutId) clearTimeout(retryTimeoutId);
     unsubscribers.forEach((unsub) => {
       try {
         unsub();
       } catch {}
     });
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      }
+    }
   };
 }
 
@@ -312,7 +429,7 @@ export function subscribeToCloudSync(callbacks: {
  */
 export async function saveMemberCloud(member: Member): Promise<void> {
   try {
-    await setDoc(doc(db, 'members', member.id), sanitizeForFirestore(member));
+    await setDoc(doc(db, 'members', member.id), sanitizeForFirestore(member), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `members/${member.id}`);
   }
@@ -328,7 +445,7 @@ export async function deleteMemberCloud(memberId: string): Promise<void> {
 
 export async function saveEventCloud(event: EventItem): Promise<void> {
   try {
-    await setDoc(doc(db, 'events', event.id), sanitizeForFirestore(event));
+    await setDoc(doc(db, 'events', event.id), sanitizeForFirestore(event), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `events/${event.id}`);
   }
@@ -360,9 +477,9 @@ export async function deleteEventCloud(
 export async function saveExpenseCloud(expense: Expense, tx?: TransactionRecord): Promise<void> {
   try {
     const batch = writeBatch(db);
-    batch.set(doc(db, 'expenses', expense.id), sanitizeForFirestore(expense));
+    batch.set(doc(db, 'expenses', expense.id), sanitizeForFirestore(expense), { merge: true });
     if (tx) {
-      batch.set(doc(db, 'transactions', tx.transactionId), sanitizeForFirestore(tx));
+      batch.set(doc(db, 'transactions', tx.transactionId), sanitizeForFirestore(tx), { merge: true });
     }
     await batch.commit();
   } catch (error) {
@@ -385,7 +502,7 @@ export async function deleteExpenseCloud(expenseId: string, receiptNo?: string):
 
 export async function saveTransactionCloud(tx: TransactionRecord): Promise<void> {
   try {
-    await setDoc(doc(db, 'transactions', tx.transactionId), sanitizeForFirestore(tx));
+    await setDoc(doc(db, 'transactions', tx.transactionId), sanitizeForFirestore(tx), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `transactions/${tx.transactionId}`);
   }

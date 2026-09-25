@@ -195,7 +195,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
   // WhatsApp Share Full Roster
   const handleShareAllWhatsApp = () => {
-    let msg = `*Tm ISHAL — Members Financial Roster (${members.length} Members)*\n`;
+    let msg = `Hi All,\n\n*Tm ISHAL — Members Financial Roster (${members.length} Members)*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
     memberStats.forEach(({ member, joinedEventsCount, totalPaid, totalPending, pendingEvents, isAllClear }, idx) => {
       const statusText = isAllClear
@@ -464,7 +464,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           ? ` Pending dues: ${formatINR(totalPending)} (in: ${pendingEvents.map((p) => `${p.eventName}: ${formatINR(p.pendingAmount)}`).join(', ')}).`
                           : ' All event contributions are cleared!';
                         const text = encodeURIComponent(
-                          `Salam ${member.name}, Tm ISHAL financial update: You have joined ${joinedEventsCount} events. Total Donated / Paid: ${formatINR(totalPaid)}.${pendingDetails}`
+                          `Hi ${member.name}, Tm ISHAL financial update: You have joined ${joinedEventsCount} events. Total Donated / Paid: ${formatINR(totalPaid)}.${pendingDetails}`
                         );
                         const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
                         window.open(url, '_blank');

@@ -166,10 +166,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     setTimeout(() => setCopiedWhatsApp(false), 2000);
   };
 
-  const handleSendReminder = (memberName: string, amount: number) => {
-    const text = `Salam ${memberName}, reminder for *${event.name}*: Your pending share is *${formatINR(amount)}*. Kindly transfer via UPI or cash to settle. Thank you!`;
+  const handleSendReminder = (memberName: string, amount: number, memberId?: string) => {
+    const mem = memberId ? members.find((m) => m.id === memberId) : members.find((m) => m.name === memberName);
+    const rawPhone = (mem?.phone || '').replace(/[^0-9]/g, '');
+    const phoneWithCountry = rawPhone ? (rawPhone.length === 10 ? `91${rawPhone}` : rawPhone) : '';
+    const text = `Hi ${memberName}, reminder for *${event.name}*: Your pending share is *${formatINR(amount)}*. Kindly transfer via UPI or cash to settle. Thank you!`;
     const encoded = encodeURIComponent(text);
-    window.open(`https://wa.me/?text=${encoded}`, '_blank');
+    const url = phoneWithCountry ? `https://wa.me/${phoneWithCountry}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -1076,7 +1080,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                         </button>
 
                         <button
-                          onClick={() => handleSendReminder(u.memberName, u.amountOwed)}
+                          onClick={() => handleSendReminder(u.memberName, u.amountOwed, u.memberId)}
                           className="p-1.5 sm:px-2 rounded-xl bg-emerald-950/80 hover:bg-emerald-900/80 border border-emerald-800/80 text-emerald-300 flex items-center gap-1 text-[11px] font-bold transition-all"
                           title="Send WhatsApp payment reminder"
                         >

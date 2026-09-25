@@ -15,9 +15,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSettings }) => {
     setSearchQuery,
     cloudSyncStatus,
     forceSyncToCloud,
+    pullLatestFromCloud,
+    isPullingCloud,
   } = useFinance();
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [justSyncedToast, setJustSyncedToast] = useState(false);
+
+  const handleQuickPull = async () => {
+    const success = await pullLatestFromCloud();
+    if (success) {
+      setJustSyncedToast(true);
+      setTimeout(() => setJustSyncedToast(false), 2000);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 bg-[#0D1527]/90 backdrop-blur-xl border-b border-slate-800/80 text-white transition-all">
@@ -76,14 +87,24 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSettings }) => {
             <div className="flex items-center gap-2 sm:gap-2.5">
               {/* Cloud Synchronization Status Indicator */}
               {cloudSyncStatus === 'connected' && (
-                <div
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 rounded-xl shadow-xs"
-                  title="Real-Time Cloud Synced: All phones share identical live data automatically"
+                <button
+                  onClick={handleQuickPull}
+                  disabled={isPullingCloud}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 border border-emerald-800/60 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="Real-Time Cloud Synced: Tap anytime to fetch latest edits from other phones"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="hidden sm:inline">Live Cloud</span>
-                </div>
+                  {isPullingCloud ? (
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                  ) : (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                    </>
+                  )}
+                  <span className="hidden sm:inline">
+                    {justSyncedToast ? 'Synced!' : isPullingCloud ? 'Refreshing...' : 'Live Cloud'}
+                  </span>
+                </button>
               )}
               {cloudSyncStatus === 'syncing' && (
                 <div
@@ -91,14 +112,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSettings }) => {
                   title="Syncing live data across devices..."
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                  <span className="hidden sm:inline">Syncing</span>
+                  <span className="hidden sm:inline">Syncing...</span>
                 </div>
               )}
               {cloudSyncStatus === 'error' && (
                 <button
-                  onClick={() => forceSyncToCloud()}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-red-950/60 text-red-400 border border-red-800/60 rounded-xl hover:bg-red-900/60 transition-colors shadow-xs"
-                  title="Cloud Sync issue. Click to retry connecting."
+                  onClick={handleQuickPull}
+                  disabled={isPullingCloud}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-red-950/60 text-red-400 border border-red-800/60 rounded-xl hover:bg-red-900/60 transition-colors shadow-xs active:scale-95 cursor-pointer"
+                  title="Cloud Sync issue. Tap to reconnect and fetch newest updates."
                 >
                   <CloudOff className="w-3.5 h-3.5 text-red-400" />
                   <span className="hidden sm:inline">Retry Sync</span>

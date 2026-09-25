@@ -444,7 +444,7 @@ export function generateEventWhatsAppText(
   const summary = calculateEventSummary(event, expenses, members, transactions);
   const eventExpenses = expenses.filter((e) => e.eventId === event.id);
 
-  let text = `✨ *Tm ISHAL — Event Financial Statement* ✨\n`;
+  let text = `Hi All,\n\n✨ *Tm ISHAL — Event Financial Statement* ✨\n`;
   text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   text += `📌 *Event:* ${event.name}\n`;
   text += `📅 *Date:* ${formatDate(event.date)}\n`;

@@ -61,7 +61,8 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
 
   // Pre-composed WhatsApp statement message
   const generateWhatsAppMessage = () => {
-    let msg = `*Tm ISHAL — Member Financial Summary*\n`;
+    let msg = `Hi ${member.name},\n\n`;
+    msg += `*Tm ISHAL — Member Financial Summary*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `👤 *Member:* ${member.name} (${member.role || 'Member'})\n`;
     msg += `📅 *Events Joined:* ${joinedEventsCount}\n`;

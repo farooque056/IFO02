@@ -145,7 +145,7 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
     const cleanPhone = member.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    let text = `Salam ${member.memberName},\n\n`;
+    let text = `Hi ${member.memberName},\n\n`;
     text += `Friendly reminder from our community team regarding pending event contributions:\n\n`;
     records.forEach((r, idx) => {
       text += `${idx + 1}. *${r.eventName}*: ${formatINR(r.amountOwed)}\n`;
@@ -167,7 +167,7 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
       year: 'numeric',
     });
 
-    let msg = `📋 *COMMUNITY PENDING DUES SUMMARY*\n`;
+    let msg = `Hi All,\n\n📋 *COMMUNITY PENDING DUES SUMMARY*\n`;
     msg += `📅 *Date:* ${dateStr}\n`;
     msg += `💰 *Total Outstanding:* ${formatINR(totalPendingAmount)} (${uniqueMembersCount} members)\n`;
     msg += `------------------------------------\n\n`;
