@@ -273,7 +273,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       );
     }
 
-    return list;
+    // Unpaid members automatically move to the top
+    return list.slice().sort((a, b) => {
+      const aIsUnpaid = a.status === 'unpaid' || a.netBalance < 0;
+      const bIsUnpaid = b.status === 'unpaid' || b.netBalance < 0;
+
+      // 1. Unpaid members always float to top
+      if (aIsUnpaid && !bIsUnpaid) return -1;
+      if (!aIsUnpaid && bIsUnpaid) return 1;
+
+      // 2. Among unpaid members, sort higher amount owed first, then by name
+      if (aIsUnpaid && bIsUnpaid) {
+        const aOwed = Math.max(0, a.expectedShare - a.totalPaid);
+        const bOwed = Math.max(0, b.expectedShare - b.totalPaid);
+        if (bOwed !== aOwed) {
+          return bOwed - aOwed;
+        }
+        return a.memberName.localeCompare(b.memberName);
+      }
+
+      // 3. Among paid/settled members, sort alphabetically by name
+      return a.memberName.localeCompare(b.memberName);
+    });
   }, [currentPaymentSummary, paymentMemberFilter, memberSearchQuery]);
 
   return (
@@ -934,8 +955,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 return (
                   <div
                     key={m.memberId}
-                    className={`p-3 sm:p-3.5 hover:bg-[#15223C]/70 transition-colors flex items-center justify-between gap-3 ${
-                      isExempt ? 'bg-rose-950/20 border-l-2 border-rose-500' : ''
+                    className={`p-3 sm:p-3.5 hover:bg-[#15223C]/70 transition-all duration-200 flex items-center justify-between gap-3 ${
+                      isExempt
+                        ? 'bg-rose-950/20 border-l-2 border-rose-500'
+                        : !isPaid
+                        ? 'bg-[#121B30]/80 border-l-2 border-rose-500/80'
+                        : 'opacity-95'
                     }`}
                   >
                     {/* Member Info */}
@@ -948,7 +973,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             ? 'bg-amber-950/80 text-amber-300 border-amber-700/80'
                             : isPaid
                             ? 'bg-emerald-950/70 text-emerald-400 border-emerald-800/70'
-                            : 'bg-amber-950/70 text-amber-400 border-amber-800/70'
+                            : 'bg-rose-950/70 text-rose-300 border-rose-800/70'
                         }`}
                       >
                         {isExempt ? '💍' : hasDonatedExtra ? '✨' : m.memberName.slice(0, 2)}
