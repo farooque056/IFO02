@@ -8,6 +8,8 @@ import {
   formatINR,
   generateEventWhatsAppText,
   downloadEventCSV,
+  getDaysDiff,
+  getMemberFinancials,
 } from '../../utils/formatters';
 import { downloadEventPDF } from '../../utils/pdfGenerator';
 import { RecordMemberPaymentModal } from './RecordMemberPaymentModal';
@@ -94,6 +96,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   const [expenseSearch, setExpenseSearch] = useState<string>('');
   const [txSearch, setTxSearch] = useState<string>('');
   const [txTypeFilter, setTxTypeFilter] = useState<string>('all');
+  const [settlementFilter, setSettlementFilter] = useState<'all' | 'unpaid' | 'late' | 'paid'>('all');
+  const [settlementSearch, setSettlementSearch] = useState<string>('');
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
 
   // Member Payment Recording State
@@ -158,6 +162,41 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       exp.category.toLowerCase().includes(expenseSearch.toLowerCase());
     return matchesCat && matchesMethod && matchesSearch;
   });
+
+  const eventOverdueDays = Math.max(0, getDaysDiff(event.date));
+
+  const settlementLateCount = useMemo(() => {
+    return summary.memberSettlement.filter((m) => {
+      if (m.isExemptFromSplit || (m.status !== 'unpaid' && m.netBalance >= 0)) return false;
+      if (eventOverdueDays > 0) return true;
+      const mem = members.find((mem) => mem.id === m.memberId);
+      const fin = mem ? getMemberFinancials(mem, events, expenses, transactions) : null;
+      return fin?.isLatePayer;
+    }).length;
+  }, [summary.memberSettlement, eventOverdueDays, members, events, expenses, transactions]);
+
+  const displayedSettlementMembers = useMemo(() => {
+    let list = summary.memberSettlement;
+    if (settlementFilter === 'unpaid') {
+      list = list.filter((m) => !m.isExemptFromSplit && (m.status === 'unpaid' || m.netBalance < 0));
+    } else if (settlementFilter === 'late') {
+      list = list.filter((m) => {
+        if (m.isExemptFromSplit || (m.status !== 'unpaid' && m.netBalance >= 0)) return false;
+        if (eventOverdueDays > 0) return true;
+        const mem = members.find((mem) => mem.id === m.memberId);
+        const fin = mem ? getMemberFinancials(mem, events, expenses, transactions) : null;
+        return fin?.isLatePayer;
+      });
+    } else if (settlementFilter === 'paid') {
+      list = list.filter((m) => m.isExemptFromSplit || m.status === 'paid' || m.status === 'settled' || m.netBalance >= 0);
+    }
+
+    if (settlementSearch.trim()) {
+      const q = settlementSearch.toLowerCase().trim();
+      list = list.filter((m) => m.memberName.toLowerCase().includes(q));
+    }
+    return list;
+  }, [summary.memberSettlement, settlementFilter, settlementSearch, eventOverdueDays, members, events, expenses, transactions]);
 
   const handleCopyWhatsApp = () => {
     const text = generateEventWhatsAppText(event, expenses, members, transactions);
@@ -1046,20 +1085,50 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                 </p>
 
                 <div className="space-y-2">
-                  {summary.unpaidMembers.map((u) => (
-                    <div
-                      key={u.memberId}
-                      className="p-3 bg-[#0B1323]/90 border border-rose-900/40 rounded-xl flex items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-white">{u.memberName}</p>
-                        <p className="text-[11px] text-slate-400">
-                          Expected Share: <span className="font-mono-num text-slate-200 font-semibold">{formatINR(summary.perMemberCost)}</span>
-                          {u.totalPaid > 0 && (
-                            <> • Paid: <span className="font-mono-num text-emerald-400">{formatINR(u.totalPaid)}</span></>
-                          )}
-                        </p>
-                      </div>
+                  {summary.unpaidMembers.map((u) => {
+                    const eventOverdueDays = Math.max(0, getDaysDiff(event.date));
+                    return (
+                      <div
+                        key={u.memberId}
+                        className="p-3 bg-[#0B1323]/90 border border-rose-900/40 rounded-xl flex items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs font-bold text-white">{u.memberName}</p>
+                            {eventOverdueDays > 0 && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800 flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5" />
+                                {eventOverdueDays}d overdue
+                              </span>
+                            )}
+                            {(() => {
+                              const memObj = members.find((m) => m.id === u.memberId);
+                              const fin = memObj ? getMemberFinancials(memObj, events, expenses, transactions) : null;
+                              if (fin && fin.joinedEventsCount > 0) {
+                                return (
+                                  <span
+                                    className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded border inline-flex items-center gap-1 ${
+                                      fin.avgPaymentDelayDays > 5
+                                        ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+                                        : 'bg-slate-800 text-slate-300 border-slate-700/60'
+                                    }`}
+                                    title={`Member's overall average payment settlement delay: ${fin.avgPaymentDelayDays} days`}
+                                  >
+                                    <Clock className="w-2.5 h-2.5 text-slate-400" />
+                                    Avg {fin.avgPaymentDelayDays}d delay
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Expected Share: <span className="font-mono-num text-slate-200 font-semibold">{formatINR(summary.perMemberCost)}</span>
+                            {u.totalPaid > 0 && (
+                              <> • Paid: <span className="font-mono-num text-emerald-400">{formatINR(u.totalPaid)}</span></>
+                            )}
+                          </p>
+                        </div>
 
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="text-right">
@@ -1089,19 +1158,88 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
+            </div>
             )}
 
             {/* Complete Member Settlement Balance Sheet */}
-            <div className="bg-[#111A2E]/90 border border-slate-800/80 rounded-2xl p-5 shadow-xs">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-blue-400" />
-                  All Members Settlement Statement
-                </h3>
+            <div className="bg-[#111A2E]/90 border border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-blue-400" />
+                    All Members Settlement Statement
+                  </h3>
+                </div>
+
+                {/* Filter and Search Controls for Settlement Statement */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search member..."
+                      value={settlementSearch}
+                      onChange={(e) => setSettlementSearch(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 bg-[#0B1323] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-36 sm:w-44"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-[#0B1323] p-0.5 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setSettlementFilter('all')}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
+                        settlementFilter === 'all'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      All ({summary.memberSettlement.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettlementFilter('unpaid')}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
+                        settlementFilter === 'unpaid'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Unpaid ({summary.unpaidMembers.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettlementFilter('late')}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                        settlementFilter === 'late'
+                          ? 'bg-rose-700 text-white shadow-xs font-bold'
+                          : settlementLateCount > 0
+                          ? 'text-rose-400 hover:text-rose-300'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Filter late or overdue members"
+                    >
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>Late ({settlementLateCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettlementFilter('paid')}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
+                        settlementFilter === 'paid'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Settled ({summary.memberSettlement.length - summary.unpaidMembers.length})
+                    </button>
+                  </div>
+                </div>
               </div>
+
               <p className="text-xs text-slate-400 mb-4">
                 {summary.splitMode === 'minimum' ? (
                   <>
@@ -1120,116 +1258,155 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               </p>
 
               {/* Settlement table */}
-              <div className="space-y-2">
-                {summary.memberSettlement.map((m) => {
-                  const isExempt = m.isExemptFromSplit;
-                  const isUnpaid = !isExempt && m.netBalance < 0;
-                  const owedAmount = Math.abs(m.netBalance);
-                  const isDonor = !isExempt && (m.isDonor || (m.extraDonation && m.extraDonation > 0));
+              {displayedSettlementMembers.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 bg-[#0B1323]/50 rounded-xl border border-slate-800/80">
+                  <p className="text-xs font-semibold text-slate-300">No members match this filter</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Switch filter back to "All" to view all member shares</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {displayedSettlementMembers.map((m) => {
+                    const isExempt = m.isExemptFromSplit;
+                    const isUnpaid = !isExempt && m.netBalance < 0;
+                    const owedAmount = Math.abs(m.netBalance);
+                    const isDonor = !isExempt && (m.isDonor || (m.extraDonation && m.extraDonation > 0));
+                    const memObj = members.find((mem) => mem.id === m.memberId);
+                    const fin = memObj ? getMemberFinancials(memObj, events, expenses, transactions) : null;
 
-                  return (
-                    <div
-                      key={m.memberId}
-                      className={`p-3 rounded-xl flex items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap border ${
-                        isExempt
-                          ? 'bg-rose-950/30 border-rose-800/60'
-                          : isDonor
-                          ? 'bg-emerald-950/30 border-emerald-700/60'
-                          : 'bg-[#0B1323]/80 border-slate-800/80'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-xs font-bold text-white">{m.memberName}</p>
-                          {isExempt && (
-                            <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-rose-950/80 border border-rose-700/80 text-rose-300">
-                              💍 Wedding Person • Exempt from split
+                    return (
+                      <div
+                        key={m.memberId}
+                        className={`p-3 rounded-xl flex items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap border ${
+                          isExempt
+                            ? 'bg-rose-950/30 border-rose-800/60'
+                            : isDonor
+                            ? 'bg-emerald-950/30 border-emerald-700/60'
+                            : isUnpaid
+                            ? 'bg-[#0B1323]/90 border-rose-900/40'
+                            : 'bg-[#0B1323]/80 border-slate-800/80'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-xs font-bold text-white">{m.memberName}</p>
+                            {isExempt && (
+                              <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-rose-950/80 border border-rose-700/80 text-rose-300">
+                                💍 Wedding Person • Exempt from split
+                              </span>
+                            )}
+                            {isDonor && (
+                              <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-emerald-950/90 border border-emerald-600 text-emerald-300 flex items-center gap-1">
+                                <Gift className="w-2.5 h-2.5 text-emerald-400" /> Donated +{formatINR(m.extraDonation || 0)} Extra!
+                              </span>
+                            )}
+                            {isUnpaid && eventOverdueDays > 0 && (
+                              <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800 flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5" />
+                                {eventOverdueDays}d overdue
+                              </span>
+                            )}
+                            {fin && fin.joinedEventsCount > 0 && (
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded border inline-flex items-center gap-1 ${
+                                  fin.avgPaymentDelayDays > 5
+                                    ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700/60'
+                                }`}
+                                title={`Member's overall average payment settlement delay: ${fin.avgPaymentDelayDays} days (${fin.timelinessBadge.label})`}
+                              >
+                                <Clock className="w-2.5 h-2.5 text-slate-400" />
+                                Avg {fin.avgPaymentDelayDays}d delay
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Paid: <span className="font-mono-num text-slate-200 font-semibold">{formatINR(m.totalPaid)}</span> •{' '}
+                            {summary.splitMode === 'minimum' ? 'Min Required: ' : 'Share: '}
+                            <span className={`font-mono-num font-semibold ${isExempt ? 'text-rose-300' : 'text-slate-200'}`}>
+                              {isExempt ? '₹0 (Exempt)' : formatINR(m.expectedShare)}
                             </span>
-                          )}
-                          {isDonor && (
-                            <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-emerald-950/90 border border-emerald-600 text-emerald-300 flex items-center gap-1">
-                              <Gift className="w-2.5 h-2.5 text-emerald-400" /> Donated +{formatINR(m.extraDonation || 0)} Extra!
-                            </span>
-                          )}
+                          </p>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Paid: <span className="font-mono-num text-slate-200 font-semibold">{formatINR(m.totalPaid)}</span> •{' '}
-                          {summary.splitMode === 'minimum' ? 'Min Required: ' : 'Share: '}
-                          <span className={`font-mono-num font-semibold ${isExempt ? 'text-rose-300' : 'text-slate-200'}`}>
-                            {isExempt ? '₹0 (Exempt)' : formatINR(m.expectedShare)}
-                          </span>
-                        </p>
-                      </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="text-right">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="text-right">
+                            {isExempt ? (
+                              <div className="px-2.5 py-1 bg-rose-950/60 border border-rose-800/70 rounded-xl text-right">
+                                <span className="text-[10px] uppercase font-bold text-rose-300 block">Exempt</span>
+                                <span className="text-xs font-extrabold text-rose-200 font-mono-num">
+                                  {m.totalPaid > 0 ? `+${formatINR(m.netBalance)}` : '₹0 Share'}
+                                </span>
+                              </div>
+                            ) : isDonor ? (
+                              <div className="px-2.5 py-1 bg-emerald-950/70 border border-emerald-600/70 rounded-xl text-right">
+                                <span className="text-[10px] uppercase font-bold text-emerald-300 block flex items-center gap-1 justify-end">
+                                  <Gift className="w-3 h-3 text-emerald-400" /> Donated
+                                </span>
+                                <span className="text-xs font-extrabold text-emerald-300 font-mono-num">
+                                  +{formatINR(m.extraDonation || 0)}
+                                </span>
+                              </div>
+                            ) : m.netBalance > 0 ? (
+                              <div className="px-2.5 py-1 bg-emerald-950/60 border border-emerald-800/60 rounded-xl text-right">
+                                <span className="text-[10px] uppercase font-bold text-emerald-300 block">Receives</span>
+                                <span className="text-xs font-extrabold text-emerald-400 font-mono-num">
+                                  +{formatINR(m.netBalance)}
+                                </span>
+                              </div>
+                            ) : isUnpaid ? (
+                              <div className="px-2.5 py-1 bg-rose-950/60 border border-rose-800/60 rounded-xl text-right">
+                                <span className="text-[10px] uppercase font-bold text-rose-300 block">Unpaid / Owes</span>
+                                <span className="text-xs font-extrabold text-rose-400 font-mono-num">
+                                  -{formatINR(owedAmount)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="px-2.5 py-1 bg-slate-800/60 border border-slate-700/60 rounded-xl text-right">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Settled</span>
+                                <span className="text-xs font-bold text-slate-300 font-mono-num">₹0</span>
+                              </div>
+                            )}
+                          </div>
+
                           {isExempt ? (
-                            <div className="px-2.5 py-1 bg-rose-950/60 border border-rose-800/70 rounded-xl text-right">
-                              <span className="text-[10px] uppercase font-bold text-rose-300 block">Exempt</span>
-                              <span className="text-xs font-extrabold text-rose-200 font-mono-num">
-                                {m.totalPaid > 0 ? `+${formatINR(m.netBalance)}` : '₹0 Share'}
-                              </span>
-                            </div>
-                          ) : isDonor ? (
-                            <div className="px-2.5 py-1 bg-emerald-950/70 border border-emerald-600/70 rounded-xl text-right">
-                              <span className="text-[10px] uppercase font-bold text-emerald-300 block flex items-center gap-1 justify-end">
-                                <Gift className="w-3 h-3 text-emerald-400" /> Donated
-                              </span>
-                              <span className="text-xs font-extrabold text-emerald-300 font-mono-num">
-                                +{formatINR(m.extraDonation || 0)}
-                              </span>
-                            </div>
-                          ) : m.netBalance > 0 ? (
-                            <div className="px-2.5 py-1 bg-emerald-950/60 border border-emerald-800/60 rounded-xl text-right">
-                              <span className="text-[10px] uppercase font-bold text-emerald-300 block">Receives</span>
-                              <span className="text-xs font-extrabold text-emerald-400 font-mono-num">
-                                +{formatINR(m.netBalance)}
-                              </span>
-                            </div>
+                            <span className="text-[10px] font-semibold text-rose-300/80 px-2 py-1 rounded-lg bg-rose-950/40 border border-rose-900/50">
+                              No dues
+                            </span>
                           ) : isUnpaid ? (
-                            <div className="px-2.5 py-1 bg-rose-950/60 border border-rose-800/60 rounded-xl text-right">
-                              <span className="text-[10px] uppercase font-bold text-rose-300 block">Unpaid / Owes</span>
-                              <span className="text-xs font-extrabold text-rose-400 font-mono-num">
-                                -{formatINR(owedAmount)}
-                              </span>
-                            </div>
+                            <button
+                              onClick={() => handleOpenRecordPayment(m.memberId, owedAmount)}
+                              className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95"
+                              title={`Mark full or partial payment for ${m.memberName}`}
+                            >
+                              <Check className="w-3 h-3 stroke-[3px]" />
+                              <span>Mark Paid</span>
+                            </button>
                           ) : (
-                            <div className="px-2.5 py-1 bg-slate-800/60 border border-slate-700/60 rounded-xl text-right">
-                              <span className="text-[10px] uppercase font-bold text-slate-400 block">Settled</span>
-                              <span className="text-xs font-bold text-slate-300 font-mono-num">₹0</span>
-                            </div>
+                            <button
+                              onClick={() => handleOpenRecordPayment(m.memberId)}
+                              className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                              title={`Add extra payment for ${m.memberName}`}
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Payment</span>
+                            </button>
+                          )}
+
+                          {isUnpaid && (
+                            <button
+                              onClick={() => handleSendReminder(m.memberName, owedAmount, m.memberId)}
+                              className="p-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-900/80 border border-emerald-800/80 text-emerald-300 flex items-center gap-1 text-[11px] font-bold transition-all"
+                              title={`Send WhatsApp reminder to ${m.memberName}`}
+                            >
+                              <Send className="w-3 h-3" />
+                            </button>
                           )}
                         </div>
-
-                        {/* Action buttons per member */}
-                        {isExempt ? (
-                          <span className="text-[10px] font-semibold text-rose-300/80 px-2 py-1 rounded-lg bg-rose-950/40 border border-rose-900/50">
-                            No dues
-                          </span>
-                        ) : isUnpaid ? (
-                          <button
-                            onClick={() => handleOpenRecordPayment(m.memberId, owedAmount)}
-                            className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95"
-                            title={`Mark full or partial payment for ${m.memberName}`}
-                          >
-                            <Check className="w-3 h-3 stroke-[3px]" />
-                            <span>Mark Paid</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleOpenRecordPayment(m.memberId)}
-                            className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                            title={`Add extra payment for ${m.memberName}`}
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Payment</span>
-                          </button>
-                        )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {summary.fundPaidAmount > 0 && (
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-blue-300">

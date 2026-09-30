@@ -26,6 +26,25 @@ export function formatDate(dateString: string): string {
   }
 }
 
+/**
+ * Calculates calendar day difference between two dates (toDate - fromDate).
+ * If toDateStr is omitted, compares against today.
+ */
+export function getDaysDiff(fromDateStr: string, toDateStr?: string): number {
+  if (!fromDateStr) return 0;
+  try {
+    const from = new Date(fromDateStr);
+    const to = toDateStr ? new Date(toDateStr) : new Date();
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) return 0;
+    const utcFrom = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const utcTo = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+    const diffDays = Math.floor((utcTo - utcFrom) / (1000 * 60 * 60 * 24));
+    return diffDays;
+  } catch {
+    return 0;
+  }
+}
+
 export function isMemberExemptFromEvent(
   event: EventItem,
   memberId: string,
@@ -629,6 +648,7 @@ export interface MemberPendingEvent {
   donatedAmount: number; // convenience alias for paidAmount
   unpaidTxId?: string;
   reason: string;
+  daysOverdue: number;
 }
 
 export interface MemberFinancialMetrics {
@@ -642,6 +662,17 @@ export interface MemberFinancialMetrics {
   isAllClear: boolean;
   memberExpenses: Expense[];
   eventDonations: { eventId: string; amount: number; txId?: string }[];
+  // Timeliness & Late Payment Metrics:
+  avgPaymentDelayDays: number;
+  maxDelayDays: number;
+  overdueEventsCount: number;
+  criticalOverdueCount: number;
+  lateEventsCount: number;
+  isLatePayer: boolean;
+  timelinessBadge: {
+    label: string;
+    variant: 'prompt' | 'moderate' | 'late' | 'critical';
+  };
 }
 
 export function getMemberFinancials(
@@ -778,7 +809,9 @@ export function getMemberFinancials(
       baselineTarget = evSummary.perMemberCost;
     }
 
-    if (unpaidTx) {
+    const overdueDays = Math.max(0, getDaysDiff(ev.date));
+
+    if (unpaidTx && !isMarkedSettled) {
       const dueAmt = Number(unpaidTx.amount) > 0 ? Number(unpaidTx.amount) : baselineTarget;
       pendingEvents.push({
         eventId: ev.id,
@@ -792,6 +825,7 @@ export function getMemberFinancials(
         donatedAmount: paidForEvent,
         unpaidTxId: unpaidTx.transactionId,
         reason: unpaidTx.notes || `Pending contribution in ${ev.name}`,
+        daysOverdue: overdueDays,
       });
     } else if (!isMarkedSettled && paidForEvent === 0) {
       pendingEvents.push({
@@ -805,6 +839,7 @@ export function getMemberFinancials(
         paidAmount: 0,
         donatedAmount: 0,
         reason: `Pending contribution share for ${ev.name}`,
+        daysOverdue: overdueDays,
       });
     } else if (!isMarkedSettled && paidForEvent < baselineTarget) {
       pendingEvents.push({
@@ -818,6 +853,7 @@ export function getMemberFinancials(
         paidAmount: paidForEvent,
         donatedAmount: paidForEvent,
         reason: `Remaining balance for ${ev.name}`,
+        daysOverdue: overdueDays,
       });
     }
   });
@@ -830,6 +866,71 @@ export function getMemberFinancials(
     txId: tx.transactionId,
   }));
 
+  // 4. Payment Timeliness & Average Delay Calculation
+  const delays: number[] = [];
+
+  joinedEvents.forEach((ev) => {
+    // Exempt events don't have payment delays
+    const isExempt =
+      isMemberExemptFromEvent(ev, member.id, [member]) ||
+      ev.weddingPersonId === member.id ||
+      (ev.exemptMemberIds || []).includes(member.id);
+    if (isExempt) return;
+
+    const pe = pendingEvents.find((p) => p.eventId === ev.id);
+    if (pe) {
+      // Pending dues count current overdue days
+      const daysOverdue = Math.max(0, getDaysDiff(ev.date));
+      delays.push(daysOverdue);
+    } else {
+      // Settled / Paid event: determine delay between event date and payment date
+      const paidTx = memberPaidContributions.find(
+        (tx) =>
+          tx.eventId === ev.id ||
+          (tx.event && tx.event.toLowerCase().trim() === ev.name.toLowerCase().trim())
+      );
+      if (paidTx && paidTx.date) {
+        const settledDelay = Math.max(0, getDaysDiff(ev.date, paidTx.date));
+        delays.push(settledDelay);
+      } else {
+        delays.push(0);
+      }
+    }
+  });
+
+  const totalDelaySum = delays.reduce((sum, d) => sum + d, 0);
+  const avgPaymentDelayDays =
+    delays.length > 0 ? Math.round((totalDelaySum / delays.length) * 10) / 10 : 0;
+  const maxDelayDays = delays.length > 0 ? Math.max(...delays) : 0;
+  const overdueEventsCount = pendingEvents.filter((p) => p.daysOverdue > 0).length;
+  const criticalOverdueCount = pendingEvents.filter((p) => p.daysOverdue >= 7).length;
+  const lateEventsCount = delays.filter((d) => d > 3).length;
+
+  let timelinessVariant: 'prompt' | 'moderate' | 'late' | 'critical' = 'prompt';
+  let timelinessLabel = 'Prompt Payer';
+
+  if (joinedEvents.length === 0) {
+    timelinessVariant = 'moderate';
+    timelinessLabel = 'No Events';
+  } else if (criticalOverdueCount > 0) {
+    timelinessVariant = 'critical';
+    timelinessLabel = `${maxDelayDays}d Overdue`;
+  } else if (overdueEventsCount > 0) {
+    timelinessVariant = 'late';
+    timelinessLabel = `${maxDelayDays}d Overdue`;
+  } else if (avgPaymentDelayDays > 7) {
+    timelinessVariant = 'late';
+    timelinessLabel = `Avg ${avgPaymentDelayDays}d Late`;
+  } else if (avgPaymentDelayDays > 2) {
+    timelinessVariant = 'moderate';
+    timelinessLabel = `Avg ${avgPaymentDelayDays}d`;
+  } else {
+    timelinessVariant = 'prompt';
+    timelinessLabel = avgPaymentDelayDays === 0 ? 'Same Day' : `Avg ${avgPaymentDelayDays}d`;
+  }
+
+  const isLatePayer = avgPaymentDelayDays > 5 || overdueEventsCount > 0;
+
   return {
     joinedEvents,
     joinedEventsCount: joinedEvents.length,
@@ -841,6 +942,73 @@ export function getMemberFinancials(
     isAllClear: totalPending === 0,
     memberExpenses: memberDirectExpenses,
     eventDonations,
+    avgPaymentDelayDays,
+    maxDelayDays,
+    overdueEventsCount,
+    criticalOverdueCount,
+    lateEventsCount,
+    isLatePayer,
+    timelinessBadge: {
+      label: timelinessLabel,
+      variant: timelinessVariant,
+    },
+  };
+}
+
+export interface CommunityDelayMetrics {
+  communityAvgDelay: number;
+  totalLatePayersCount: number;
+  totalCriticalOverdueCount: number;
+  totalPromptPayersCount: number;
+  avgOverdueDaysPending: number;
+}
+
+export function calculateCommunityPaymentDelaySummary(
+  members: Member[],
+  events: EventItem[],
+  expenses: Expense[],
+  transactions: TransactionRecord[] = []
+): CommunityDelayMetrics {
+  let totalDelay = 0;
+  let membersWithEvents = 0;
+  let totalLatePayersCount = 0;
+  let totalCriticalOverdueCount = 0;
+  let totalPromptPayersCount = 0;
+
+  let totalPendingOverdueDays = 0;
+  let totalPendingEventsCount = 0;
+
+  members.forEach((m) => {
+    const fin = getMemberFinancials(m, events, expenses, transactions);
+    if (fin.joinedEventsCount > 0) {
+      membersWithEvents++;
+      totalDelay += fin.avgPaymentDelayDays;
+      if (fin.isLatePayer) totalLatePayersCount++;
+      if (fin.criticalOverdueCount > 0) totalCriticalOverdueCount++;
+      if (fin.avgPaymentDelayDays <= 2 && fin.overdueEventsCount === 0) totalPromptPayersCount++;
+
+      fin.pendingEvents.forEach((pe) => {
+        if (pe.daysOverdue > 0) {
+          totalPendingOverdueDays += pe.daysOverdue;
+          totalPendingEventsCount++;
+        }
+      });
+    }
+  });
+
+  const communityAvgDelay =
+    membersWithEvents > 0 ? Math.round((totalDelay / membersWithEvents) * 10) / 10 : 0;
+  const avgOverdueDaysPending =
+    totalPendingEventsCount > 0
+      ? Math.round((totalPendingOverdueDays / totalPendingEventsCount) * 10) / 10
+      : 0;
+
+  return {
+    communityAvgDelay,
+    totalLatePayersCount,
+    totalCriticalOverdueCount,
+    totalPromptPayersCount,
+    avgOverdueDaysPending,
   };
 }
 

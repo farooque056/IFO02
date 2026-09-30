@@ -1,7 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { Member } from '../../types';
-import { formatINR, getMemberFinancials } from '../../utils/formatters';
+import {
+  formatINR,
+  getMemberFinancials,
+  calculateCommunityPaymentDelaySummary,
+} from '../../utils/formatters';
 import { downloadMemberPDF, downloadRosterPDF } from '../../utils/pdfGenerator';
 import { MemberDetailModal } from './MemberDetailModal';
 import { BatchImportModal } from './BatchImportModal';
@@ -30,6 +34,7 @@ import {
   ChevronRight,
   Trophy,
   ArrowUpRight,
+  Clock,
 } from 'lucide-react';
 
 interface MembersViewProps {
@@ -38,8 +43,27 @@ interface MembersViewProps {
   onSelectEvent: (eventId: string) => void;
 }
 
-type FilterRole = 'all' | 'due' | 'settled' | 'top-contributors' | 'coordinator' | 'core' | 'inactive';
-type SortOption = 'name-asc' | 'name-desc' | 'events-desc' | 'paid-desc' | 'due-desc';
+type FilterRole =
+  | 'all'
+  | 'due'
+  | 'settled'
+  | 'late'
+  | 'critical-overdue'
+  | 'prompt'
+  | 'top-contributors'
+  | 'coordinator'
+  | 'core'
+  | 'inactive';
+
+type SortOption =
+  | 'name-asc'
+  | 'name-desc'
+  | 'events-desc'
+  | 'paid-desc'
+  | 'due-desc'
+  | 'delay-desc'
+  | 'delay-asc'
+  | 'overdue-desc';
 
 export const MembersView: React.FC<MembersViewProps> = ({
   onAddMember,
@@ -68,11 +92,18 @@ export const MembersView: React.FC<MembersViewProps> = ({
         pendingEvents: financials.pendingEvents,
         totalPending: financials.totalPending,
         isAllClear: financials.isAllClear,
+        avgPaymentDelayDays: financials.avgPaymentDelayDays,
+        maxDelayDays: financials.maxDelayDays,
+        overdueEventsCount: financials.overdueEventsCount,
+        criticalOverdueCount: financials.criticalOverdueCount,
+        lateEventsCount: financials.lateEventsCount,
+        isLatePayer: financials.isLatePayer,
+        timelinessBadge: financials.timelinessBadge,
       };
     });
   }, [members, events, expenses, transactions]);
 
-  // Combined totals
+  // Combined totals & community delay metrics
   const overallMetrics = useMemo(() => {
     let activeCount = 0;
     let totalDonations = 0;
@@ -92,14 +123,22 @@ export const MembersView: React.FC<MembersViewProps> = ({
       }
     });
 
+    const communityDelayMetrics = calculateCommunityPaymentDelaySummary(
+      members,
+      events,
+      expenses,
+      transactions
+    );
+
     return {
       activeCount,
       totalDonations,
       totalPendingDues,
       membersWithPending,
       donorsCount,
+      communityDelayMetrics,
     };
-  }, [memberStats]);
+  }, [memberStats, members, events, expenses, transactions]);
 
   // Filter and Sort members list
   const filteredMembers = useMemo(() => {
@@ -110,20 +149,39 @@ export const MembersView: React.FC<MembersViewProps> = ({
       // Top Donors strictly depends on having paid contributions
       list = list.filter((item) => item.totalPaid > 0);
     } else {
-      list = list.filter(({ member, joinedEventsCount, totalPending, isAllClear }) => {
-        if (roleFilter === 'coordinator') {
-          if (!member.role?.toLowerCase().includes('coordinator')) return false;
-        } else if (roleFilter === 'core') {
-          if (member.role?.toLowerCase().includes('coordinator')) return false;
-        } else if (roleFilter === 'due') {
-          if (totalPending <= 0) return false;
-        } else if (roleFilter === 'settled') {
-          if (!isAllClear) return false;
-        } else if (roleFilter === 'inactive') {
-          if (joinedEventsCount > 0) return false;
+      list = list.filter(
+        ({
+          member,
+          joinedEventsCount,
+          totalPending,
+          isAllClear,
+          isLatePayer,
+          criticalOverdueCount,
+          avgPaymentDelayDays,
+          overdueEventsCount,
+        }) => {
+          if (roleFilter === 'coordinator') {
+            if (!member.role?.toLowerCase().includes('coordinator')) return false;
+          } else if (roleFilter === 'core') {
+            if (member.role?.toLowerCase().includes('coordinator')) return false;
+          } else if (roleFilter === 'due') {
+            if (totalPending <= 0) return false;
+          } else if (roleFilter === 'settled') {
+            if (!isAllClear) return false;
+          } else if (roleFilter === 'late') {
+            if (!isLatePayer) return false;
+          } else if (roleFilter === 'critical-overdue') {
+            if (criticalOverdueCount === 0) return false;
+          } else if (roleFilter === 'prompt') {
+            if (joinedEventsCount === 0 || avgPaymentDelayDays > 2 || overdueEventsCount > 0) {
+              return false;
+            }
+          } else if (roleFilter === 'inactive') {
+            if (joinedEventsCount > 0) return false;
+          }
+          return true;
         }
-        return true;
-      });
+      );
     }
 
     const q = (localSearch || searchQuery || '').toLowerCase().trim();
@@ -169,6 +227,15 @@ export const MembersView: React.FC<MembersViewProps> = ({
       if (sortOption === 'due-desc') {
         return b.totalPending - a.totalPending; // Most pending first
       }
+      if (sortOption === 'delay-desc') {
+        return b.avgPaymentDelayDays - a.avgPaymentDelayDays || b.totalPending - a.totalPending;
+      }
+      if (sortOption === 'delay-asc') {
+        return a.avgPaymentDelayDays - b.avgPaymentDelayDays || a.member.name.localeCompare(b.member.name);
+      }
+      if (sortOption === 'overdue-desc') {
+        return b.maxDelayDays - a.maxDelayDays || b.totalPending - a.totalPending;
+      }
       return 0;
     });
 
@@ -177,12 +244,27 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
   // Export roster to CSV
   const handleExportCSV = () => {
-    let csv = 'Name,Role,Phone,Events Joined,Total Donated / Paid (INR),Total Pending (INR),Pending Events Breakdown,Status\n';
-    memberStats.forEach(({ member, joinedEventsCount, totalPaid, totalPending, pendingEvents, isAllClear }) => {
-      const status = isAllClear ? 'Settled' : 'Pending Due';
-      const pendingBreakdown = pendingEvents.map((p) => `${p.eventName}: ${formatINR(p.pendingAmount)}`).join('; ');
-      csv += `"${member.name}","${member.role || 'Member'}","${member.phone || ''}",${joinedEventsCount},${totalPaid},${totalPending},"${pendingBreakdown}","${status}"\n`;
-    });
+    let csv =
+      'Name,Role,Phone,Events Joined,Total Donated / Paid (INR),Total Pending (INR),Avg Payment Delay (Days),Max Overdue (Days),Timeliness Status,Pending Events Breakdown,Status\n';
+    memberStats.forEach(
+      ({
+        member,
+        joinedEventsCount,
+        totalPaid,
+        totalPending,
+        pendingEvents,
+        isAllClear,
+        avgPaymentDelayDays,
+        maxDelayDays,
+        timelinessBadge,
+      }) => {
+        const status = isAllClear ? 'Settled' : 'Pending Due';
+        const pendingBreakdown = pendingEvents
+          .map((p) => `${p.eventName} (${p.daysOverdue}d overdue): ${formatINR(p.pendingAmount)}`)
+          .join('; ');
+        csv += `"${member.name}","${member.role || 'Member'}","${member.phone || ''}",${joinedEventsCount},${totalPaid},${totalPending},${avgPaymentDelayDays},${maxDelayDays},"${timelinessBadge.label}","${pendingBreakdown}","${status}"\n`;
+      }
+    );
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -248,7 +330,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
       {/* Roster Overview Card */}
       <div className="bg-[#111A2E]/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-4 sm:p-5 shadow-xs">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
               Total Roster
@@ -294,6 +376,18 @@ export const MembersView: React.FC<MembersViewProps> = ({
             </span>
             <span className="text-[10.5px] text-slate-500 block font-medium mt-0.5">
               {overallMetrics.membersWithPending} members with dues
+            </span>
+          </div>
+
+          <div className="col-span-2 sm:col-span-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+              Avg Payment Delay
+            </span>
+            <span className="text-xl sm:text-2xl font-extrabold text-amber-300 font-mono-num mt-0.5 block tracking-tight">
+              {overallMetrics.communityDelayMetrics.communityAvgDelay}d
+            </span>
+            <span className="text-[10.5px] text-slate-500 block font-medium mt-0.5">
+              {overallMetrics.communityDelayMetrics.totalLatePayersCount} late · {overallMetrics.communityDelayMetrics.totalPromptPayersCount} prompt
             </span>
           </div>
         </div>
@@ -362,6 +456,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
               >
                 <option value="all">Filter: All ({members.length})</option>
                 <option value="due">Filter: With Dues ({overallMetrics.membersWithPending})</option>
+                <option value="late">Filter: Late Payers ({overallMetrics.communityDelayMetrics.totalLatePayersCount})</option>
+                <option value="critical-overdue">Filter: Critical Overdue ({overallMetrics.communityDelayMetrics.totalCriticalOverdueCount})</option>
+                <option value="prompt">Filter: Prompt Payers ({overallMetrics.communityDelayMetrics.totalPromptPayersCount})</option>
                 <option value="settled">Filter: All Cleared ({members.length - overallMetrics.membersWithPending})</option>
                 <option value="top-contributors">Filter: Top Donors</option>
                 <option value="coordinator">Filter: Coordinators</option>
@@ -383,6 +480,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 <option value="events-desc">Sort: Most Events</option>
                 <option value="paid-desc">Sort: Highest Paid</option>
                 <option value="due-desc">Sort: Largest Due</option>
+                <option value="delay-desc">Sort: Highest Avg Delay (Slowest Payers)</option>
+                <option value="delay-asc">Sort: Lowest Avg Delay (Promptest Payers)</option>
+                <option value="overdue-desc">Sort: Longest Overdue Days</option>
               </select>
               <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -410,145 +510,207 @@ export const MembersView: React.FC<MembersViewProps> = ({
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredMembers.map(({ member, joinedEventsCount, totalPaid, totalPending, pendingEvents, isAllClear }) => {
-            const rawPhone = (member.phone || '').replace(/[^0-9]/g, '');
-            const cleanPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+          {filteredMembers.map(
+            ({
+              member,
+              joinedEventsCount,
+              totalPaid,
+              totalPending,
+              pendingEvents,
+              isAllClear,
+              avgPaymentDelayDays,
+              timelinessBadge,
+            }) => {
+              const rawPhone = (member.phone || '').replace(/[^0-9]/g, '');
+              const cleanPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
 
-            return (
-              <div
-                key={member.id}
-                className="bg-[#111A2E]/90 backdrop-blur-xl border border-slate-800/80 hover:border-blue-700/60 rounded-3xl p-4 sm:p-4.5 transition-all duration-200 shadow-xs group"
-              >
-                {/* Top Row: Avatar, Identity, Role & Quick Action Buttons */}
-                <div className="flex items-start justify-between gap-3">
-                  {/* Clickable Profile Area */}
+              return (
+                <div
+                  key={member.id}
+                  className="bg-[#111A2E]/90 backdrop-blur-xl border border-slate-800/80 hover:border-blue-700/60 rounded-3xl p-4 sm:p-4.5 transition-all duration-200 shadow-xs group"
+                >
+                  {/* Top Row: Avatar, Identity, Role & Quick Action Buttons */}
+                  <div className="flex items-start justify-between gap-3">
+                    {/* Clickable Profile Area */}
+                    <div
+                      onClick={() => setSelectedMemberDetail(member)}
+                      className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+                    >
+                      <div
+                        className="w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-extrabold text-white shadow-xs shrink-0 ring-2 ring-[#0D1527] group-hover:scale-105 transition-transform"
+                        style={{ backgroundColor: member.avatarColor || '#2563EB' }}
+                      >
+                        {member.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-white truncate group-hover:text-blue-400 transition-colors">
+                            {member.name}
+                          </h3>
+                          {member.role && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-950/80 text-blue-300 border border-blue-800/60 shrink-0">
+                              {member.role}
+                            </span>
+                          )}
+                        </div>
+                        {member.phone ? (
+                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 truncate font-mono-num font-medium">
+                            <Phone className="w-3 h-3 text-slate-500 shrink-0" />
+                            <span>{member.phone}</span>
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Tm ISHAL Member</p>
+                        )}
+
+                        {/* Timeliness & Payment Badges */}
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {joinedEventsCount > 0 && (
+                            <span
+                              className={`text-[9.5px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                                timelinessBadge.variant === 'critical'
+                                  ? 'bg-rose-950/90 text-rose-300 border border-rose-700 font-extrabold'
+                                  : timelinessBadge.variant === 'late'
+                                  ? 'bg-amber-950/80 text-amber-300 border border-amber-700/80'
+                                  : timelinessBadge.variant === 'moderate'
+                                  ? 'bg-blue-950/70 text-blue-300 border border-blue-800/60'
+                                  : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50'
+                              }`}
+                              title={`Average payment settlement delay: ${avgPaymentDelayDays} days`}
+                            >
+                              <Clock className="w-2.5 h-2.5 shrink-0" />
+                              <span>{timelinessBadge.label}</span>
+                            </span>
+                          )}
+                          <span
+                            className={`text-[9.5px] font-bold px-2 py-0.5 rounded-md ${
+                              isAllClear
+                                ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/60'
+                                : 'bg-rose-950/70 text-rose-300 border border-rose-800/60'
+                            }`}
+                          >
+                            {isAllClear ? '✓ Settled' : `Due: ${formatINR(totalPending)}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Direct Action Icons Bar */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Direct WhatsApp Action */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const pendingDetails =
+                            pendingEvents.length > 0
+                              ? ` Pending dues: ${formatINR(totalPending)} (in: ${pendingEvents
+                                  .map((p) => `${p.eventName}: ${formatINR(p.pendingAmount)}`)
+                                  .join(', ')}).`
+                              : ' All event contributions are cleared!';
+                          const text = encodeURIComponent(
+                            `Hi ${member.name}, Tm ISHAL financial update: You have joined ${joinedEventsCount} events. Total Donated / Paid: ${formatINR(
+                              totalPaid
+                            )}.${pendingDetails}`
+                          );
+                          const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="p-2 rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 transition-colors"
+                        title="Send WhatsApp update"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+
+                      {/* Direct Call Action */}
+                      {member.phone && (
+                        <a
+                          href={`tel:${member.phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-2 rounded-xl text-blue-400 hover:text-blue-300 hover:bg-blue-950/40 transition-colors"
+                          title="Call Phone"
+                        >
+                          <Phone className="w-4 h-4" />
+                        </a>
+                      )}
+
+                      {/* Download Single Member PDF */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadMemberPDF(member, events, expenses, members, transactions);
+                        }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                        title="Download PDF statement"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
+
+                      {/* Edit Profile */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          requireAuth(() => onEditMember(member));
+                        }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                        title="Edit member profile"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Member Financial Metric Bar (Clickable) */}
                   <div
                     onClick={() => setSelectedMemberDetail(member)}
-                    className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+                    className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3.5 pt-3.5 border-t border-slate-800/80 text-center cursor-pointer"
                   >
-                    <div
-                      className="w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-extrabold text-white shadow-xs shrink-0 ring-2 ring-[#0D1527] group-hover:scale-105 transition-transform"
-                      style={{ backgroundColor: member.avatarColor || '#2563EB' }}
-                    >
-                      {member.name.slice(0, 2).toUpperCase()}
+                    <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Events Joined
+                      </span>
+                      <span className="text-xs font-extrabold text-white font-mono-num">
+                        {joinedEventsCount}
+                      </span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-white truncate group-hover:text-blue-400 transition-colors">
-                          {member.name}
-                        </h3>
-                        {member.role && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-950/80 text-blue-300 border border-blue-800/60 shrink-0">
-                            {member.role}
-                          </span>
-                        )}
-                      </div>
-                      {member.phone ? (
-                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 truncate font-mono-num font-medium">
-                          <Phone className="w-3 h-3 text-slate-500 shrink-0" />
-                          <span>{member.phone}</span>
-                        </p>
-                      ) : (
-                        <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Tm ISHAL Member</p>
-                      )}
+
+                    <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Total Paid
+                      </span>
+                      <span className="text-xs font-extrabold font-mono-num text-emerald-400">
+                        {formatINR(totalPaid)}
+                      </span>
                     </div>
-                  </div>
 
-                  {/* Direct Action Icons Bar */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Direct WhatsApp Action */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const pendingDetails = pendingEvents.length > 0
-                          ? ` Pending dues: ${formatINR(totalPending)} (in: ${pendingEvents.map((p) => `${p.eventName}: ${formatINR(p.pendingAmount)}`).join(', ')}).`
-                          : ' All event contributions are cleared!';
-                        const text = encodeURIComponent(
-                          `Hi ${member.name}, Tm ISHAL financial update: You have joined ${joinedEventsCount} events. Total Donated / Paid: ${formatINR(totalPaid)}.${pendingDetails}`
-                        );
-                        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
-                        window.open(url, '_blank');
-                      }}
-                      className="p-2 rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 transition-colors"
-                      title="Send WhatsApp update"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                    </button>
-
-                    {/* Direct Call Action */}
-                    {member.phone && (
-                      <a
-                        href={`tel:${member.phone}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-2 rounded-xl text-blue-400 hover:text-blue-300 hover:bg-blue-950/40 transition-colors"
-                        title="Call Phone"
+                    <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Pending Due
+                      </span>
+                      <span
+                        className={`text-xs font-extrabold font-mono-num ${
+                          totalPending > 0 ? 'text-rose-400' : 'text-emerald-400'
+                        }`}
                       >
-                        <Phone className="w-4 h-4" />
-                      </a>
-                    )}
+                        {totalPending > 0 ? formatINR(totalPending) : '₹0'}
+                      </span>
+                    </div>
 
-                    {/* Download Single Member PDF */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadMemberPDF(member, events, expenses, members, transactions);
-                      }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
-                      title="Download PDF statement"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
-
-                    {/* Edit Profile */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        requireAuth(() => onEditMember(member));
-                      }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
-                      title="Edit member profile"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
+                    <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Avg Delay
+                      </span>
+                      <span
+                        className={`text-xs font-extrabold font-mono-num ${
+                          avgPaymentDelayDays > 5
+                            ? 'text-rose-300'
+                            : avgPaymentDelayDays > 2
+                            ? 'text-amber-300'
+                            : 'text-emerald-400'
+                        }`}
+                      >
+                        {joinedEventsCount > 0 ? `${avgPaymentDelayDays}d` : '—'}
+                      </span>
+                    </div>
                   </div>
-                </div>
-
-                {/* Member Financial Metric Bar (Clickable) */}
-                <div
-                  onClick={() => setSelectedMemberDetail(member)}
-                  className="grid grid-cols-3 gap-2 mt-3.5 pt-3.5 border-t border-slate-800/80 text-center cursor-pointer"
-                >
-                  <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
-                    <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Events Joined
-                    </span>
-                    <span className="text-xs font-extrabold text-white font-mono-num">
-                      {joinedEventsCount}
-                    </span>
-                  </div>
-
-                  <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
-                    <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Total Paid
-                    </span>
-                    <span className="text-xs font-extrabold font-mono-num text-emerald-400">
-                      {formatINR(totalPaid)}
-                    </span>
-                  </div>
-
-                  <div className="bg-[#0B1323]/80 p-2.5 rounded-2xl border border-slate-800/80 group-hover:border-slate-700 transition-colors">
-                    <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Pending Amount
-                    </span>
-                    <span
-                      className={`text-xs font-extrabold font-mono-num ${
-                        totalPending > 0 ? 'text-amber-400' : 'text-emerald-400'
-                      }`}
-                    >
-                      {totalPending > 0 ? formatINR(totalPending) : '₹0'}
-                    </span>
-                  </div>
-                </div>
 
                 {/* Event Pending Breakdown Detail */}
                 {pendingEvents.length > 0 ? (

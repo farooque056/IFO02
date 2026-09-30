@@ -1,6 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { calculateEventSummary, formatDate, formatINR, getEventFinancials } from '../../utils/formatters';
+import {
+  calculateEventSummary,
+  formatDate,
+  formatINR,
+  getEventFinancials,
+  getDaysDiff,
+  getMemberFinancials,
+} from '../../utils/formatters';
 import { downloadCommunityMasterReportPDF } from '../../utils/pdfGenerator';
 import { EVENT_TYPE_LABELS } from '../../data/initialData';
 import { RecordMemberPaymentModal } from '../Events/RecordMemberPaymentModal';
@@ -31,6 +38,7 @@ import {
   Sparkles,
   X,
   Lock,
+  Clock,
 } from 'lucide-react';
 import { Expense } from '../../types';
 
@@ -82,13 +90,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     isAdminUnlocked,
     updateEvent,
     markMemberPaid,
+    markMembersPaid,
   } = useFinance();
 
   const [showEventBreakdown, setShowEventBreakdown] = useState<boolean>(false);
 
   // Active event member payment recording state
   const [selectedPaymentEventId, setSelectedPaymentEventId] = useState<string | null>(null);
-  const [paymentMemberFilter, setPaymentMemberFilter] = useState<'all' | 'unpaid' | 'paid'>('all');
+  const [paymentMemberFilter, setPaymentMemberFilter] = useState<'all' | 'unpaid' | 'late' | 'paid'>('all');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'paid' | 'unpaid' } | null>(null);
 
@@ -169,6 +178,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return allUnpaidMembers.reduce((sum, item) => sum + item.amountOwed, 0);
   }, [allUnpaidMembers]);
 
+  // Average days overdue across all pending members
+  const avgOverdueDaysAll = useMemo(() => {
+    const overdues = allUnpaidMembers.map((u) => (u.eventDate ? Math.max(0, getDaysDiff(u.eventDate)) : 0));
+    const sum = overdues.reduce((a, b) => a + b, 0);
+    return overdues.length > 0 ? Math.round((sum / overdues.length) * 10) / 10 : 0;
+  }, [allUnpaidMembers]);
+
   // Community Functions (excluding the internal non-event 'other expenses' fund ledger)
   const communityEvents = useMemo(() => {
     return events.filter(
@@ -238,9 +254,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const unpaidList = currentPaymentSummary.unpaidMembers;
       if (unpaidList.length === 0) return;
 
-      unpaidList.forEach((u) => {
-        markMemberPaid(currentPaymentEvent.id, u.memberId, true);
-      });
+      markMembersPaid(
+        currentPaymentEvent.id,
+        unpaidList.map((u) => u.memberId),
+        true
+      );
 
       setFeedbackMessage({
         text: `✓ Marked all ${unpaidList.length} members as Paid`,
@@ -253,13 +271,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   };
 
+  // Count of late members for current event
+  const lateMembersCount = useMemo(() => {
+    if (!currentPaymentSummary || !currentPaymentEvent) return 0;
+    const eventOverdueDays = Math.max(0, getDaysDiff(currentPaymentEvent.date));
+    return currentPaymentSummary.memberSettlement.filter((m) => {
+      if (m.isExemptFromSplit || m.status !== 'unpaid') return false;
+      if (eventOverdueDays > 0) return true;
+      const memberObj = members.find((mem) => mem.id === m.memberId);
+      const fin = memberObj ? getMemberFinancials(memberObj, events, expenses, transactions) : null;
+      return fin?.isLatePayer;
+    }).length;
+  }, [currentPaymentSummary, currentPaymentEvent, members, events, expenses, transactions]);
+
   // Filtered and searched list of enrolled members for this event (exempt members like wedding bride/groom excluded)
   const displayedPaymentMembers = useMemo(() => {
-    if (!currentPaymentSummary) return [];
+    if (!currentPaymentSummary || !currentPaymentEvent) return [];
     let list = currentPaymentSummary.memberSettlement.filter((m) => !m.isExemptFromSplit);
+    const eventOverdueDays = Math.max(0, getDaysDiff(currentPaymentEvent.date));
 
     if (paymentMemberFilter === 'unpaid') {
       list = list.filter((m) => m.status === 'unpaid');
+    } else if (paymentMemberFilter === 'late') {
+      list = list.filter((m) => {
+        if (m.status !== 'unpaid') return false;
+        if (eventOverdueDays > 0) return true;
+        const memberObj = members.find((mem) => mem.id === m.memberId);
+        const fin = memberObj ? getMemberFinancials(memberObj, events, expenses, transactions) : null;
+        return fin?.isLatePayer;
+      });
     } else if (paymentMemberFilter === 'paid') {
       list = list.filter((m) => m.status === 'paid' || m.status === 'settled');
     }
@@ -273,7 +313,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       );
     }
 
-    // Unpaid members automatically move to the top
+    // Unpaid members automatically move to the top; if late filter is active, sort by highest delay
     return list.slice().sort((a, b) => {
       const aIsUnpaid = a.status === 'unpaid' || a.netBalance < 0;
       const bIsUnpaid = b.status === 'unpaid' || b.netBalance < 0;
@@ -282,8 +322,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (aIsUnpaid && !bIsUnpaid) return -1;
       if (!aIsUnpaid && bIsUnpaid) return 1;
 
-      // 2. Among unpaid members, sort higher amount owed first, then by name
+      // 2. Among unpaid members:
       if (aIsUnpaid && bIsUnpaid) {
+        if (paymentMemberFilter === 'late') {
+          const aMem = members.find((m) => m.id === a.memberId);
+          const bMem = members.find((m) => m.id === b.memberId);
+          const aDelay = aMem ? getMemberFinancials(aMem, events, expenses, transactions).avgPaymentDelayDays : 0;
+          const bDelay = bMem ? getMemberFinancials(bMem, events, expenses, transactions).avgPaymentDelayDays : 0;
+          if (bDelay !== aDelay) return bDelay - aDelay;
+        }
+
         const aOwed = Math.max(0, a.expectedShare - a.totalPaid);
         const bOwed = Math.max(0, b.expectedShare - b.totalPaid);
         if (bOwed !== aOwed) {
@@ -295,7 +343,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       // 3. Among paid/settled members, sort alphabetically by name
       return a.memberName.localeCompare(b.memberName);
     });
-  }, [currentPaymentSummary, paymentMemberFilter, memberSearchQuery]);
+  }, [currentPaymentSummary, currentPaymentEvent, paymentMemberFilter, memberSearchQuery, members, events, expenses, transactions]);
 
   return (
     <div className="space-y-6">
@@ -504,8 +552,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       Total: {formatINR(totalUnpaidAcrossEvents)}
                     </span>
                   </div>
-                  <p className="text-[11px] text-amber-300/80 mt-0.5 font-medium flex items-center gap-1">
+                  <p className="text-[11px] text-amber-300/80 mt-0.5 font-medium flex items-center gap-2 flex-wrap">
                     <span>Click to see all pending members list, event breakdowns & WhatsApp reminders</span>
+                    {avgOverdueDaysAll > 0 && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-900/90 text-amber-200 border border-amber-600/70 inline-flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5 text-amber-300" />
+                        Avg Overdue: {avgOverdueDaysAll}d
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -791,6 +845,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => setPaymentMemberFilter('late')}
+                className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                  paymentMemberFilter === 'late'
+                    ? 'bg-rose-700 text-white shadow-xs font-bold'
+                    : lateMembersCount > 0
+                    ? 'text-rose-400 hover:text-rose-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Filter late or overdue payments"
+              >
+                <Clock className="w-2.5 h-2.5" />
+                <span>Late ({lateMembersCount})</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setPaymentMemberFilter('paid')}
                 className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
                   paymentMemberFilter === 'paid'
@@ -1003,6 +1072,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               ? 'Paid'
                               : `Owes ${formatINR(owedAmount)}`}
                           </span>
+                          {!isPaid && !isExempt && currentPaymentEvent && (
+                            (() => {
+                              const eventOverdueDays = Math.max(0, getDaysDiff(currentPaymentEvent.date));
+                              if (eventOverdueDays > 0) {
+                                return (
+                                  <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800/80 flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {eventOverdueDays}d overdue
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()
+                          )}
+                          {(() => {
+                            const memObj = members.find((mem) => mem.id === m.memberId);
+                            const fin = memObj ? getMemberFinancials(memObj, events, expenses, transactions) : null;
+                            if (fin && fin.joinedEventsCount > 0) {
+                              return (
+                                <span
+                                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded border inline-flex items-center gap-1 ${
+                                    fin.avgPaymentDelayDays > 5
+                                      ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+                                      : 'bg-slate-800/80 text-slate-300 border-slate-700/60'
+                                  }`}
+                                  title={`Member's overall average payment settlement delay: ${fin.avgPaymentDelayDays} days (${fin.timelinessBadge.label})`}
+                                >
+                                  <Clock className="w-2.5 h-2.5 text-slate-400" />
+                                  Avg {fin.avgPaymentDelayDays}d delay
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
 
                         <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 flex-wrap font-medium">

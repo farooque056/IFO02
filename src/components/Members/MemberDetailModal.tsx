@@ -67,6 +67,9 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
     msg += `👤 *Member:* ${member.name} (${member.role || 'Member'})\n`;
     msg += `📅 *Events Joined:* ${joinedEventsCount}\n`;
     msg += `💰 *Total Donated / Paid:* ${formatINR(totalPaid)}\n`;
+    if (joinedEventsCount > 0) {
+      msg += `⏱️ *Avg Payment Delay:* ${financials.avgPaymentDelayDays} days (${financials.timelinessBadge.label})\n`;
+    }
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
 
     if (isAllClear) {
@@ -75,7 +78,8 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
       msg += `⚠️ *STATUS:* Total Pending Due of *${formatINR(totalPending)}*\n`;
       msg += `\n*Pending Events Breakdown:*\n`;
       pendingEvents.forEach((p, idx) => {
-        msg += `${idx + 1}. *${p.eventName}*\n`;
+        const overdueText = p.daysOverdue > 0 ? ` (${p.daysOverdue}d overdue)` : '';
+        msg += `${idx + 1}. *${p.eventName}*${overdueText}\n`;
         msg += `   • Share: ${formatINR(p.perMemberCost)} | Donated: ${formatINR(p.donatedAmount)} | *Pending: ${formatINR(p.pendingAmount)}*\n`;
       });
     }
@@ -228,8 +232,8 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
             </button>
           </div>
 
-          {/* 4 Financial Metric Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {/* 5 Financial Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
             <div className="bg-[#111A2E]/90 border border-slate-800 rounded-2xl p-3.5 text-center shadow-xs">
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
                 Joined Events
@@ -244,7 +248,7 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
 
             <div className="bg-[#111A2E]/90 border border-slate-800 rounded-2xl p-3.5 text-center shadow-xs">
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                Total Paid (Donated)
+                Total Paid
               </span>
               <span className="text-xl font-extrabold text-emerald-400 font-mono-num mt-1 block">
                 {formatINR(totalPaid)}
@@ -258,7 +262,7 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
                 Pending Dues
               </span>
-              <span className={`text-xl font-extrabold font-mono-num mt-1 block ${totalPending > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+              <span className={`text-xl font-extrabold font-mono-num mt-1 block ${totalPending > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                 {formatINR(totalPending)}
               </span>
               <span className="text-[10.5px] text-slate-500 block font-medium mt-0.5">
@@ -266,8 +270,20 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
               </span>
             </div>
 
+            <div className="bg-[#111A2E]/90 border border-slate-800 rounded-2xl p-3.5 text-center shadow-xs">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Avg Settlement Delay
+              </span>
+              <span className={`text-xl font-extrabold font-mono-num mt-1 block ${financials.avgPaymentDelayDays > 5 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {joinedEventsCount > 0 ? `${financials.avgPaymentDelayDays}d` : '—'}
+              </span>
+              <span className="text-[10.5px] text-slate-400 block font-bold mt-0.5">
+                {financials.timelinessBadge.label}
+              </span>
+            </div>
+
             <div
-              className={`border rounded-2xl p-3.5 text-center shadow-xs ${
+              className={`border rounded-2xl p-3.5 text-center shadow-xs col-span-2 sm:col-span-1 ${
                 isAllClear
                   ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300'
                   : 'bg-amber-950/40 border-amber-800/80 text-amber-300'
@@ -315,6 +331,12 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                         <span className="text-[10px] uppercase font-semibold px-2 py-0.2 rounded-md bg-amber-950/80 text-amber-300 border border-amber-800/50">
                           {pe.eventType}
                         </span>
+                        {pe.daysOverdue > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-800 flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" />
+                            {pe.daysOverdue}d overdue
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         Share: <strong className="text-slate-200 font-mono-num">{formatINR(pe.perMemberCost)}</strong> • Donated: <strong className="text-emerald-400 font-mono-num">{formatINR(pe.donatedAmount)}</strong>
@@ -445,6 +467,11 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                             ? `Pending ${formatINR(pe.pendingAmount)}`
                             : `Settled`}
                         </span>
+                        {isPending && pe.daysOverdue > 0 && (
+                          <span className="text-[10px] font-bold text-rose-400 block font-mono-num mt-0.5">
+                            {pe.daysOverdue}d overdue
+                          </span>
+                        )}
                         <span className="text-[10px] text-slate-500 block mt-1 font-medium group-hover:text-blue-400 transition-colors">
                           View Event Ledger →
                         </span>

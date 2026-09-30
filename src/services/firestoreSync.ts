@@ -445,7 +445,13 @@ export async function deleteMemberCloud(memberId: string): Promise<void> {
 
 export async function saveEventCloud(event: EventItem): Promise<void> {
   try {
-    await setDoc(doc(db, 'events', event.id), sanitizeForFirestore(event), { merge: true });
+    const payload = {
+      ...event,
+      settledMemberIds: Array.isArray(event.settledMemberIds) ? event.settledMemberIds : [],
+      memberIds: Array.isArray(event.memberIds) ? event.memberIds : [],
+      categories: Array.isArray(event.categories) ? event.categories : [],
+    };
+    await setDoc(doc(db, 'events', event.id), sanitizeForFirestore(payload), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `events/${event.id}`);
   }

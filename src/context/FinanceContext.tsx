@@ -76,6 +76,7 @@ interface FinanceContextType {
   addCategoryToEvent: (eventId: string, categoryName: string) => void;
   removeCategoryFromEvent: (eventId: string, categoryName: string) => void;
   markMemberPaid: (eventId: string, memberId: string, isPaid?: boolean) => void;
+  markMembersPaid: (eventId: string, memberIds: string[], isPaid?: boolean) => void;
   toggleMemberSettled: (eventId: string, memberId: string) => void;
 
   // CRUD Expenses
@@ -671,20 +672,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateEvent = (id: string, eventData: Partial<EventItem>) => {
     requireAuth(() => {
-      let updatedToSave: EventItem | null = null;
-      setEvents((prev) =>
-        prev.map((ev) => {
-          if (ev.id === id) {
-            const updatedEv = { ...ev, ...eventData };
-            updatedToSave = updatedEv;
-            return updatedEv;
-          }
-          return ev;
-        })
-      );
-      if (updatedToSave) {
-        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud update event error:', err));
-      }
+      const currentEv = events.find((ev) => ev.id === id);
+      if (!currentEv) return;
+      const updatedEv: EventItem = { ...currentEv, ...eventData };
+
+      setEvents((prev) => prev.map((ev) => (ev.id === id ? updatedEv : ev)));
+
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.EVENTS);
+        const parsed = stored ? JSON.parse(stored) : [];
+        if (Array.isArray(parsed)) {
+          const next = parsed.map((ev: any) => (ev.id === id ? updatedEv : ev));
+          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(next));
+        }
+      } catch {}
+
+      saveEventCloud(updatedEv).catch((err) => console.error('Cloud update event error:', err));
     });
   };
 
@@ -707,96 +710,137 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addCategoryToEvent = (eventId: string, categoryName: string) => {
     if (!categoryName.trim()) return;
-    let updatedToSave: EventItem | null = null;
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id === eventId) {
-          const currentCats = ev.categories || [];
-          if (currentCats.includes(categoryName.trim())) return ev;
-          const updatedEv = {
-            ...ev,
-            categories: [...currentCats, categoryName.trim()],
-          };
-          updatedToSave = updatedEv;
-          return updatedEv;
-        }
-        return ev;
-      })
-    );
-    if (updatedToSave) {
-      saveEventCloud(updatedToSave).catch((err) => console.error('Cloud add category error:', err));
-    }
+    const currentEv = events.find((ev) => ev.id === eventId);
+    if (!currentEv) return;
+    const currentCats = currentEv.categories || [];
+    if (currentCats.includes(categoryName.trim())) return;
+
+    const updatedEv: EventItem = {
+      ...currentEv,
+      categories: [...currentCats, categoryName.trim()],
+    };
+
+    setEvents((prev) => prev.map((ev) => (ev.id === eventId ? updatedEv : ev)));
+    saveEventCloud(updatedEv).catch((err) => console.error('Cloud add category error:', err));
   };
 
   const removeCategoryFromEvent = (eventId: string, categoryName: string) => {
-    let updatedToSave: EventItem | null = null;
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id === eventId) {
-          const updatedEv = {
-            ...ev,
-            categories: (ev.categories || []).filter((c) => c !== categoryName),
-          };
-          updatedToSave = updatedEv;
-          return updatedEv;
+    const currentEv = events.find((ev) => ev.id === eventId);
+    if (!currentEv) return;
+
+    const updatedEv: EventItem = {
+      ...currentEv,
+      categories: (currentEv.categories || []).filter((c) => c !== categoryName),
+    };
+
+    setEvents((prev) => prev.map((ev) => (ev.id === eventId ? updatedEv : ev)));
+    saveEventCloud(updatedEv).catch((err) => console.error('Cloud remove category error:', err));
+  };
+
+  const markMembersPaid = (eventId: string, memberIds: string[], isPaid: boolean = true) => {
+    requireAuth(() => {
+      let targetEv: EventItem | undefined = events.find((ev) => ev.id === eventId);
+      if (!targetEv) {
+        try {
+          const stored = localStorage.getItem(STORAGE_KEYS.EVENTS);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            targetEv = parsed.find((e: any) => e.id === eventId);
+          }
+        } catch {}
+      }
+
+      const currentSettled = new Set(targetEv?.settledMemberIds || []);
+      memberIds.forEach((mId) => {
+        if (isPaid) {
+          currentSettled.add(mId);
+        } else {
+          currentSettled.delete(mId);
         }
-        return ev;
-      })
-    );
-    if (updatedToSave) {
-      saveEventCloud(updatedToSave).catch((err) => console.error('Cloud remove category error:', err));
-    }
+      });
+
+      const updatedEv: EventItem = targetEv
+        ? {
+            ...targetEv,
+            settledMemberIds: Array.from(currentSettled),
+          }
+        : {
+            id: eventId,
+            name: 'Event',
+            type: 'custom',
+            status: 'active',
+            date: new Date().toISOString().slice(0, 10),
+            memberIds,
+            settledMemberIds: Array.from(currentSettled),
+            categories: ['Member Contribution'],
+            createdAt: new Date().toISOString(),
+          };
+
+      // 1. Immediately update React state
+      setEvents((prev) => {
+        const exists = prev.some((e) => e.id === eventId);
+        if (exists) {
+          return prev.map((ev) => (ev.id === eventId ? updatedEv : ev));
+        } else {
+          return [...prev, updatedEv];
+        }
+      });
+
+      // 2. Immediately update localStorage so browser refresh reloads the paid status
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.EVENTS);
+        const parsed = stored ? JSON.parse(stored) : [];
+        if (Array.isArray(parsed)) {
+          const exists = parsed.some((e: any) => e.id === eventId);
+          const next = exists
+            ? parsed.map((e: any) => (e.id === eventId ? updatedEv : e))
+            : [...parsed, updatedEv];
+          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(next));
+        }
+      } catch (err) {
+        console.error('LocalStorage write error in markMembersPaid:', err);
+      }
+
+      // 3. Immediately persist to Cloud Firestore for permanent cross-device & reload persistence
+      saveEventCloud(updatedEv).catch((err) => {
+        console.error('Cloud mark members paid error:', err);
+      });
+    });
   };
 
   const markMemberPaid = (eventId: string, memberId: string, isPaid: boolean = true) => {
-    requireAuth(() => {
-      let updatedToSave: EventItem | null = null;
-      setEvents((prev) =>
-        prev.map((ev) => {
-          if (ev.id !== eventId) return ev;
-          const currentSettled = new Set(ev.settledMemberIds || []);
-          if (isPaid) {
-            currentSettled.add(memberId);
-          } else {
-            currentSettled.delete(memberId);
-          }
-          const updatedEv = {
-            ...ev,
-            settledMemberIds: Array.from(currentSettled),
-          };
-          updatedToSave = updatedEv;
-          return updatedEv;
-        })
-      );
-      if (updatedToSave) {
-        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud mark paid error:', err));
-      }
-    });
+    markMembersPaid(eventId, [memberId], isPaid);
   };
 
   const toggleMemberSettled = (eventId: string, memberId: string) => {
     requireAuth(() => {
-      let updatedToSave: EventItem | null = null;
-      setEvents((prev) =>
-        prev.map((ev) => {
-          if (ev.id !== eventId) return ev;
-          const currentSettled = new Set(ev.settledMemberIds || []);
-          if (currentSettled.has(memberId)) {
-            currentSettled.delete(memberId);
-          } else {
-            currentSettled.add(memberId);
-          }
-          const updatedEv = {
-            ...ev,
-            settledMemberIds: Array.from(currentSettled),
-          };
-          updatedToSave = updatedEv;
-          return updatedEv;
-        })
-      );
-      if (updatedToSave) {
-        saveEventCloud(updatedToSave).catch((err) => console.error('Cloud toggle settled error:', err));
+      const currentEv = events.find((ev) => ev.id === eventId);
+      if (!currentEv) return;
+
+      const currentSettled = new Set(currentEv.settledMemberIds || []);
+      if (currentSettled.has(memberId)) {
+        currentSettled.delete(memberId);
+      } else {
+        currentSettled.add(memberId);
       }
+
+      const updatedEv: EventItem = {
+        ...currentEv,
+        settledMemberIds: Array.from(currentSettled),
+      };
+
+      setEvents((prev) => prev.map((ev) => (ev.id === eventId ? updatedEv : ev)));
+
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.EVENTS);
+        const parsed = stored ? JSON.parse(stored) : [];
+        if (Array.isArray(parsed)) {
+          const next = parsed.map((ev: any) => (ev.id === eventId ? updatedEv : ev));
+          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(next));
+        }
+      } catch {}
+
+      saveEventCloud(updatedEv).catch((err) => console.error('Cloud toggle settled error:', err));
     });
   };
 
@@ -837,46 +881,38 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateExpense = (id: string, expenseData: Partial<Expense>) => {
     requireAuth(() => {
-      let updatedExpToSave: Expense | null = null;
-      setExpenses((prev) =>
-        prev.map((exp) => {
-          if (exp.id === id) {
-            const updatedExp = { ...exp, ...expenseData };
-            updatedExpToSave = updatedExp;
-            return updatedExp;
-          }
-          return exp;
-        })
-      );
+      const currentExp = expenses.find((exp) => exp.id === id);
+      if (!currentExp) return;
+
+      const updatedExp: Expense = { ...currentExp, ...expenseData };
+      setExpenses((prev) => prev.map((exp) => (exp.id === id ? updatedExp : exp)));
 
       // Keep ledger transaction in sync with edited expense
       let updatedTxToSave: TransactionRecord | undefined = undefined;
-      if (updatedExpToSave) {
-        const targetExp: Expense = updatedExpToSave;
-        setTransactions((prev) =>
-          prev.map((tx) => {
-            const matchesId = targetExp.receiptNo && tx.transactionId === targetExp.receiptNo;
-            const matchesEvent = tx.eventId === targetExp.eventId && tx.nameOrCategory === targetExp.name;
-            if (matchesId || matchesEvent) {
-              const updatedTx: TransactionRecord = {
-                ...tx,
-                nameOrCategory: targetExp.name,
-                amount: targetExp.amount,
-                date: targetExp.date,
-                category: targetExp.category,
-                paymentMethod: targetExp.paymentMethod,
-                memberId: targetExp.paidById !== 'fund' ? targetExp.paidById : undefined,
-              };
-              updatedTxToSave = updatedTx;
-              return updatedTx;
-            }
-            return tx;
-          })
-        );
-        saveExpenseCloud(targetExp, updatedTxToSave).catch((err) =>
-          console.error('Cloud update expense error:', err)
-        );
-      }
+      setTransactions((prev) =>
+        prev.map((tx) => {
+          const matchesId = updatedExp.receiptNo && tx.transactionId === updatedExp.receiptNo;
+          const matchesEvent = tx.eventId === updatedExp.eventId && tx.nameOrCategory === updatedExp.name;
+          if (matchesId || matchesEvent) {
+            const updatedTx: TransactionRecord = {
+              ...tx,
+              nameOrCategory: updatedExp.name,
+              amount: updatedExp.amount,
+              date: updatedExp.date,
+              category: updatedExp.category,
+              paymentMethod: updatedExp.paymentMethod,
+              memberId: updatedExp.paidById !== 'fund' ? updatedExp.paidById : undefined,
+            };
+            updatedTxToSave = updatedTx;
+            return updatedTx;
+          }
+          return tx;
+        })
+      );
+
+      saveExpenseCloud(updatedExp, updatedTxToSave).catch((err) =>
+        console.error('Cloud update expense error:', err)
+      );
     });
   };
 
@@ -905,20 +941,15 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateTransaction = (transactionId: string, txData: Partial<TransactionRecord>) => {
     requireAuth(() => {
-      let updatedTxToSave: TransactionRecord | null = null;
+      const currentTx = transactions.find((tx) => tx.transactionId === transactionId);
+      if (!currentTx) return;
+
+      const updatedTx: TransactionRecord = { ...currentTx, ...txData };
       setTransactions((prev) =>
-        prev.map((tx) => {
-          if (tx.transactionId === transactionId) {
-            const updatedTx = { ...tx, ...txData };
-            updatedTxToSave = updatedTx;
-            return updatedTx;
-          }
-          return tx;
-        })
+        prev.map((tx) => (tx.transactionId === transactionId ? updatedTx : tx))
       );
-      if (updatedTxToSave) {
-        saveTransactionCloud(updatedTxToSave).catch((err) => console.error('Cloud update transaction error:', err));
-      }
+
+      saveTransactionCloud(updatedTx).catch((err) => console.error('Cloud update transaction error:', err));
     });
   };
 
@@ -948,20 +979,15 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateMember = (id: string, memberData: Partial<Member>) => {
     requireAuth(() => {
-      let updatedMemberToSave: Member | null = null;
+      const currentMember = members.find((m) => m.id === id);
+      if (!currentMember) return;
+
+      const updatedMember: Member = { ...currentMember, ...memberData };
       setMembers((prev) =>
-        prev.map((m) => {
-          if (m.id === id) {
-            const updatedM = { ...m, ...memberData };
-            updatedMemberToSave = updatedM;
-            return updatedM;
-          }
-          return m;
-        })
+        prev.map((m) => (m.id === id ? updatedMember : m))
       );
-      if (updatedMemberToSave) {
-        saveMemberCloud(updatedMemberToSave).catch((err) => console.error('Cloud update member error:', err));
-      }
+
+      saveMemberCloud(updatedMember).catch((err) => console.error('Cloud update member error:', err));
     });
   };
 
@@ -1168,6 +1194,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addCategoryToEvent,
         removeCategoryFromEvent,
         markMemberPaid,
+        markMembersPaid,
         toggleMemberSettled,
         addExpense,
         updateExpense,

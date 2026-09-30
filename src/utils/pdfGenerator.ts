@@ -1285,7 +1285,9 @@ export function downloadRosterPDF(
       ? fin.pendingEvents.map((pe) => `${pe.eventName} (${formatPDFCurrency(pe.pendingAmount)})`).join(', ')
       : 'All Cleared';
 
-    const statusText = fin.isAllClear ? 'SETTLED' : `${fin.pendingEvents.length} PENDING`;
+    const statusText = fin.isAllClear
+      ? `SETTLED (${fin.avgPaymentDelayDays}d avg)`
+      : `${fin.pendingEvents.length} PENDING (${fin.maxDelayDays}d overdue)`;
 
     return [
       String(idx + 1),

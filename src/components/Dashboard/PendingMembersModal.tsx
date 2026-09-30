@@ -14,8 +14,10 @@ import {
   Send,
   UserCheck,
   Lock,
+  Clock,
+  ArrowUpDown,
 } from 'lucide-react';
-import { formatINR, formatDate } from '../../utils/formatters';
+import { formatINR, formatDate, getDaysDiff, getMemberFinancials } from '../../utils/formatters';
 import { EventItem, Member } from '../../types';
 import { useFinance } from '../../context/FinanceContext';
 
@@ -29,6 +31,7 @@ export interface PendingItem {
   phone?: string;
   role?: string;
   amountOwed: number;
+  daysOverdue?: number;
 }
 
 interface PendingMembersModalProps {
@@ -50,13 +53,15 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
   onSelectEvent,
   onMarkPaid,
 }) => {
-  const { requireAuth, isAdminUnlocked } = useFinance();
+  const { requireAuth, isAdminUnlocked, expenses, transactions } = useFinance();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEventFilter, setSelectedEventFilter] = useState<string>('all');
+  const [lateFilter, setLateFilter] = useState<'all' | 'overdue' | 'late-3' | 'late-7' | 'late-14'>('all');
+  const [sortOption, setSortOption] = useState<'overdue-desc' | 'due-desc' | 'avg-delay-desc' | 'name-asc'>('overdue-desc');
   const [copiedNotification, setCopiedNotification] = useState(false);
   const [actionSuccessText, setActionSuccessText] = useState<string | null>(null);
 
-  // Group unpaid records by member
+  // Group unpaid records by member and compute delay metrics
   const memberGroupedData = useMemo(() => {
     const map = new Map<
       string,
@@ -66,13 +71,23 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
         phone?: string;
         role?: string;
         totalPending: number;
-        records: PendingItem[];
+        records: (PendingItem & { daysOverdue: number })[];
+        maxDaysOverdue: number;
+        historicalAvgDelay: number;
+        isLatePayer: boolean;
       }
     >();
 
     unpaidItems.forEach((item) => {
+      const overdue = item.eventDate ? Math.max(0, getDaysDiff(item.eventDate)) : 0;
+      const rec = { ...item, daysOverdue: overdue };
+
       if (!map.has(item.memberId)) {
         const memberObj = members.find((m) => m.id === item.memberId);
+        const fin = memberObj
+          ? getMemberFinancials(memberObj, events, expenses, transactions)
+          : null;
+
         map.set(item.memberId, {
           memberId: item.memberId,
           memberName: item.memberName || memberObj?.name || 'Member',
@@ -80,15 +95,21 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
           role: item.role || memberObj?.role,
           totalPending: 0,
           records: [],
+          maxDaysOverdue: 0,
+          historicalAvgDelay: fin?.avgPaymentDelayDays || 0,
+          isLatePayer: fin?.isLatePayer || overdue > 5,
         });
       }
       const entry = map.get(item.memberId)!;
       entry.totalPending += item.amountOwed;
-      entry.records.push(item);
+      entry.records.push(rec);
+      if (overdue > entry.maxDaysOverdue) {
+        entry.maxDaysOverdue = overdue;
+      }
     });
 
-    return Array.from(map.values()).sort((a, b) => b.totalPending - a.totalPending);
-  }, [unpaidItems, members]);
+    return Array.from(map.values());
+  }, [unpaidItems, members, events, expenses, transactions]);
 
   // Total summary calculations
   const totalPendingAmount = useMemo(() => {
@@ -97,15 +118,26 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
 
   const uniqueMembersCount = memberGroupedData.length;
 
-  // Filtered members list based on search and event filter
+  // Average days overdue across all pending items
+  const avgOverdueDaysAll = useMemo(() => {
+    const overdues = unpaidItems.map((u) => (u.eventDate ? Math.max(0, getDaysDiff(u.eventDate)) : 0));
+    const sum = overdues.reduce((a, b) => a + b, 0);
+    return overdues.length > 0 ? Math.round((sum / overdues.length) * 10) / 10 : 0;
+  }, [unpaidItems]);
+
+  // Filtered members list based on search, event filter, late filter, and sorting
   const filteredMemberGroups = useMemo(() => {
-    return memberGroupedData
+    let list = memberGroupedData
       .map((group) => {
         // Filter records inside member by selected event filter
         const filteredRecords = group.records.filter((rec) => {
           if (selectedEventFilter !== 'all' && rec.eventId !== selectedEventFilter) {
             return false;
           }
+          if (lateFilter === 'overdue' && rec.daysOverdue <= 0) return false;
+          if (lateFilter === 'late-3' && rec.daysOverdue < 3) return false;
+          if (lateFilter === 'late-7' && rec.daysOverdue < 7) return false;
+          if (lateFilter === 'late-14' && rec.daysOverdue < 14) return false;
           return true;
         });
 
@@ -130,7 +162,25 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
 
         return true;
       });
-  }, [memberGroupedData, searchTerm, selectedEventFilter]);
+
+    list.sort((a, b) => {
+      if (sortOption === 'overdue-desc') {
+        return b.maxDaysOverdue - a.maxDaysOverdue || b.totalPending - a.totalPending;
+      }
+      if (sortOption === 'due-desc') {
+        return b.totalPending - a.totalPending || b.maxDaysOverdue - a.maxDaysOverdue;
+      }
+      if (sortOption === 'avg-delay-desc') {
+        return b.historicalAvgDelay - a.historicalAvgDelay || b.totalPending - a.totalPending;
+      }
+      if (sortOption === 'name-asc') {
+        return a.memberName.localeCompare(b.memberName);
+      }
+      return 0;
+    });
+
+    return list;
+  }, [memberGroupedData, searchTerm, selectedEventFilter, lateFilter, sortOption]);
 
   // Generate WhatsApp text for a single member
   const handleSendSingleReminder = (
@@ -235,7 +285,10 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                 <strong className="text-amber-400 font-mono-num text-sm">
                   {formatINR(totalPendingAmount)}
                 </strong>{' '}
-                across community functions
+                across community functions • Avg Overdue Delay:{' '}
+                <strong className="text-amber-300 font-mono-num text-sm">
+                  {avgOverdueDaysAll} days
+                </strong>
               </p>
             </div>
           </div>
@@ -260,10 +313,10 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
         )}
 
         {/* Action toolbar & Filters */}
-        <div className="p-3.5 sm:p-4 bg-[#0E1729] border-b border-slate-800/80 flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="p-3.5 sm:p-4 bg-[#0E1729] border-b border-slate-800/80 flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             {/* Search Input */}
-            <div className="relative flex-1 min-w-0">
+            <div className="relative flex-1 min-w-[150px]">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="text"
@@ -287,7 +340,7 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
               <select
                 value={selectedEventFilter}
                 onChange={(e) => setSelectedEventFilter(e.target.value)}
-                className="pl-2.5 pr-7 py-2 bg-[#070D18] border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-amber-500/70 cursor-pointer appearance-none font-medium max-w-[150px] sm:max-w-[190px] truncate"
+                className="pl-2.5 pr-7 py-2 bg-[#070D18] border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-amber-500/70 cursor-pointer appearance-none font-medium max-w-[130px] sm:max-w-[160px] truncate"
               >
                 <option value="all">All Events ({unpaidItems.length})</option>
                 {events
@@ -299,6 +352,39 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                   ))}
               </select>
               <Filter className="w-3 h-3 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+
+            {/* Late / Delay Filter Select */}
+            <div className="relative shrink-0">
+              <select
+                value={lateFilter}
+                onChange={(e) => setLateFilter(e.target.value as any)}
+                className="pl-2.5 pr-7 py-2 bg-[#070D18] border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-amber-500/70 cursor-pointer appearance-none font-medium"
+                title="Filter by overdue delay"
+              >
+                <option value="all">Age: All Pending</option>
+                <option value="overdue">Overdue (&gt; 0d)</option>
+                <option value="late-3">Late (&gt; 3d)</option>
+                <option value="late-7">Critical (&gt; 7d)</option>
+                <option value="late-14">Severe (&gt; 14d)</option>
+              </select>
+              <Clock className="w-3 h-3 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="relative shrink-0">
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value as any)}
+                className="pl-2.5 pr-7 py-2 bg-[#070D18] border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-amber-500/70 cursor-pointer appearance-none font-medium"
+                title="Sort pending list"
+              >
+                <option value="overdue-desc">Sort: Oldest Overdue</option>
+                <option value="due-desc">Sort: Largest Due</option>
+                <option value="avg-delay-desc">Sort: Slowest Payer</option>
+                <option value="name-asc">Sort: Name (A-Z)</option>
+              </select>
+              <ArrowUpDown className="w-3 h-3 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
@@ -325,6 +411,34 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
               </>
             )}
           </button>
+        </div>
+
+        {/* Quick Late Filter Pills Bar */}
+        <div className="px-4 py-2 bg-[#09101D] border-b border-slate-800/80 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+          <span className="text-[11px] font-bold text-slate-400 mr-1 shrink-0 flex items-center gap-1">
+            <Clock className="w-3 h-3 text-amber-400" />
+            Quick Late Filter:
+          </span>
+          {[
+            { id: 'all', label: `All Pending (${memberGroupedData.length})` },
+            { id: 'overdue', label: `Overdue >0d (${memberGroupedData.filter((g) => g.maxDaysOverdue > 0).length})` },
+            { id: 'late-3', label: `Late >3d (${memberGroupedData.filter((g) => g.maxDaysOverdue >= 3).length})` },
+            { id: 'late-7', label: `Critical >7d (${memberGroupedData.filter((g) => g.maxDaysOverdue >= 7).length})` },
+            { id: 'late-14', label: `Severe >14d (${memberGroupedData.filter((g) => g.maxDaysOverdue >= 14).length})` },
+          ].map((pill) => (
+            <button
+              key={pill.id}
+              type="button"
+              onClick={() => setLateFilter(pill.id as any)}
+              className={`px-2.5 py-1 rounded-xl text-[10.5px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+                lateFilter === pill.id
+                  ? 'bg-amber-600 text-white shadow-xs font-extrabold'
+                  : 'bg-[#10192A] hover:bg-[#162238] text-slate-300 border border-slate-800'
+              }`}
+            >
+              {pill.label}
+            </button>
+          ))}
         </div>
 
         {/* Pending Members List Content */}
@@ -372,12 +486,33 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Owing in{' '}
-                          <strong className="text-slate-200">
-                            {group.records.length} {group.records.length === 1 ? 'event' : 'events'}
-                          </strong>
-                        </p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <p className="text-[11px] text-slate-400">
+                            Owing in{' '}
+                            <strong className="text-slate-200">
+                              {group.records.length} {group.records.length === 1 ? 'event' : 'events'}
+                            </strong>
+                          </p>
+                          {group.maxDaysOverdue > 0 && (
+                            <span
+                              className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                group.maxDaysOverdue >= 14
+                                  ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                                  : group.maxDaysOverdue >= 7
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                  : 'bg-slate-800 text-slate-300 border border-slate-700'
+                              }`}
+                            >
+                              <Clock className="w-2.5 h-2.5" />
+                              <span>{group.maxDaysOverdue}d overdue</span>
+                            </span>
+                          )}
+                          {group.historicalAvgDelay > 0 && (
+                            <span className="text-[9.5px] text-slate-400 font-medium">
+                              • Member avg delay: <strong className="text-amber-300/90 font-mono-num">{group.historicalAvgDelay}d</strong>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -439,6 +574,20 @@ export const PendingMembersModal: React.FC<PendingMembersModalProps> = ({
                               <span className="text-[10.5px] text-slate-500 font-mono-num flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
                                 {formatDate(rec.eventDate)}
+                              </span>
+                            )}
+                            {rec.daysOverdue !== undefined && rec.daysOverdue > 0 && (
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                  rec.daysOverdue >= 14
+                                    ? 'bg-rose-950/90 text-rose-300 border border-rose-800'
+                                    : rec.daysOverdue >= 7
+                                    ? 'bg-amber-950/90 text-amber-300 border border-amber-800'
+                                    : 'bg-slate-800/80 text-slate-300 border border-slate-700'
+                                }`}
+                              >
+                                <Clock className="w-2.5 h-2.5" />
+                                {rec.daysOverdue}d overdue
                               </span>
                             )}
                           </div>

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { TransactionRecord, TransactionType, TransactionStatus } from '../../types';
-import { formatINR, formatDate } from '../../utils/formatters';
+import { formatINR, formatDate, getDaysDiff } from '../../utils/formatters';
 import {
   BookOpenText,
   Search,
@@ -32,12 +32,23 @@ export const TransactionsView: React.FC = () => {
 
   const activeSearch = searchQuery || localSearch;
 
+  const isTxOverdue = (tx: TransactionRecord) => {
+    if (tx.paymentStatus !== 'Unpaid') return false;
+    if (!tx.date) return false;
+    return getDaysDiff(tx.date) > 0;
+  };
+
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       const matchesEvent = selectedEventFilter === 'all' || tx.eventId === selectedEventFilter || tx.event === selectedEventFilter;
       const matchesType = selectedTypeFilter === 'all' || tx.transactionType === selectedTypeFilter;
-      const matchesStatus = selectedStatusFilter === 'all' || tx.paymentStatus === selectedStatusFilter;
+      const matchesStatus =
+        selectedStatusFilter === 'all'
+          ? true
+          : selectedStatusFilter === 'Late / Overdue'
+          ? isTxOverdue(tx)
+          : tx.paymentStatus === selectedStatusFilter;
       
       const query = activeSearch.toLowerCase().trim();
       const matchesSearch =
@@ -57,6 +68,8 @@ export const TransactionsView: React.FC = () => {
     let totalContributions = 0;
     let totalExpenses = 0;
     let totalUnpaid = 0;
+    let totalLateUnpaid = 0;
+    let lateTxCount = 0;
 
     transactions.forEach((tx) => {
       if (tx.transactionType === 'Contribution') {
@@ -64,6 +77,10 @@ export const TransactionsView: React.FC = () => {
           totalContributions += tx.amount;
         } else if (tx.paymentStatus === 'Unpaid') {
           totalUnpaid += tx.amount;
+          if (isTxOverdue(tx)) {
+            totalLateUnpaid += tx.amount;
+            lateTxCount++;
+          }
         }
       } else if (tx.transactionType === 'Expense') {
         totalExpenses += tx.amount;
@@ -75,6 +92,8 @@ export const TransactionsView: React.FC = () => {
       totalContributions,
       totalExpenses,
       totalUnpaid,
+      totalLateUnpaid,
+      lateTxCount,
       netTotal: totalContributions - totalExpenses,
     };
   }, [transactions]);
@@ -228,17 +247,26 @@ export const TransactionsView: React.FC = () => {
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
             <span className="text-[11px] font-semibold text-slate-400 mr-1">Status:</span>
-            {['all', 'Paid', 'Unpaid', 'Recorded'].map((status) => (
+            {['all', 'Paid', 'Unpaid', 'Late / Overdue', 'Recorded'].map((status) => (
               <button
                 key={status}
                 onClick={() => setSelectedStatusFilter(status)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
                   selectedStatusFilter === status
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? status === 'Late / Overdue'
+                      ? 'bg-rose-700 text-white shadow-xs font-bold'
+                      : 'bg-blue-600 text-white shadow-xs'
                     : 'bg-[#0D1527] text-slate-400 hover:text-slate-200 border border-slate-800'
                 }`}
               >
-                {status === 'all' ? 'All' : status}
+                {status === 'Late / Overdue' && <Clock className="w-2.5 h-2.5" />}
+                <span>
+                  {status === 'all'
+                    ? 'All'
+                    : status === 'Late / Overdue'
+                    ? `Late (${stats.lateTxCount})`
+                    : status}
+                </span>
               </button>
             ))}
           </div>
@@ -311,6 +339,12 @@ export const TransactionsView: React.FC = () => {
                         >
                           {tx.paymentStatus}
                         </span>
+                        {isTxOverdue(tx) && (
+                          <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800 flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" />
+                            {getDaysDiff(tx.date)}d overdue
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2.5 text-xs text-slate-400 mt-1 flex-wrap font-medium">
