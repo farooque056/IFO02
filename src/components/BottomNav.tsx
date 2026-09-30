@@ -1,7 +1,7 @@
 import React from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { TabType } from '../types';
-import { LayoutDashboard, CalendarDays, BookOpenText, Users, Plus } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Scale, Users, Plus } from 'lucide-react';
 
 interface BottomNavProps {
   onOpenQuickCreate: () => void;
@@ -65,7 +65,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onOpenQuickCreate }) => {
           </button>
         </div>
 
-        {/* Tab 3: Transactions Ledger */}
+        {/* Tab 3: Accounts & Audit Statements */}
         <button
           onClick={() => handleTabChange('transactions')}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl relative transition-all duration-200 ${
@@ -75,14 +75,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onOpenQuickCreate }) => {
           }`}
         >
           <div className="relative">
-            <BookOpenText className={`w-5 h-5 mb-0.5 ${activeTab === 'transactions' ? 'stroke-[2.4px]' : 'stroke-2'}`} />
+            <Scale className={`w-5 h-5 mb-0.5 ${activeTab === 'transactions' ? 'stroke-[2.4px]' : 'stroke-2'}`} />
             {transactions.length > 0 && (
-              <span className="absolute -top-1 -right-2.5 bg-cyan-600 text-white text-[9px] font-bold rounded-full px-1 min-w-[14px] h-3.5 flex items-center justify-center shadow-xs">
+              <span className="absolute -top-1 -right-2.5 bg-blue-600 text-white text-[9px] font-bold rounded-full px-1 min-w-[14px] h-3.5 flex items-center justify-center shadow-xs">
                 {transactions.length}
               </span>
             )}
           </div>
-          <span className="text-[10px] font-semibold tracking-tight">Ledger</span>
+          <span className="text-[10px] font-semibold tracking-tight">Accounts</span>
         </button>
 
         {/* Tab 4: Members */}

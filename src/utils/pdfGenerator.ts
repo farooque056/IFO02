@@ -1603,3 +1603,222 @@ export function downloadPettyCashBookPDF(
   doc.save(`Tm_ISHAL_Petty_Cash_Book_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+/**
+ * Generate and download a high-quality, professional Custom Range Financial Statement PDF
+ */
+export function downloadCustomRangePDF(
+  startDate: string,
+  endDate: string,
+  transactions: Transaction[],
+  expenses: Expense[]
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2;
+
+  // Filter transactions and expenses by range
+  const filteredTxs = transactions.filter((tx) => {
+    if (!tx.date) return false;
+    if (startDate && tx.date < startDate) return false;
+    if (endDate && tx.date > endDate) return false;
+    return true;
+  });
+
+  const filteredExpenses = expenses.filter((exp) => {
+    if (!exp.date) return false;
+    if (startDate && exp.date < startDate) return false;
+    if (endDate && exp.date > endDate) return false;
+    return true;
+  });
+
+  const collections = filteredTxs
+    .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid')
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+  const totalExpenseAmount = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const netMargin = collections - totalExpenseAmount;
+
+  // Cash vs Bank
+  const cashInflow = filteredTxs
+    .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid' && (tx.paymentMethod || 'cash') === 'cash')
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+  const bankInflow = filteredTxs
+    .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid' && tx.paymentMethod === 'bank')
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+  const cashOutflow = filteredExpenses
+    .filter((e) => (e.paymentMethod || 'cash') === 'cash')
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  const bankOutflow = filteredExpenses
+    .filter((e) => e.paymentMethod === 'bank')
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  // Palette
+  const primaryNavy = [11, 25, 56];
+  const accentBlue = [37, 99, 235];
+  const textDark = [15, 23, 42];
+  const borderLight = [226, 232, 240];
+  const emeraldGreen = [5, 150, 105];
+  const roseRed = [225, 29, 72];
+
+  // Header Banner
+  doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.roundedRect(margin, 12, contentWidth, 32, 3, 3, 'F');
+
+  doc.setFillColor(accentBlue[0], accentBlue[1], accentBlue[2]);
+  doc.roundedRect(margin + 6, 16, 12, 12, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('IFO', margin + 12, 24, { align: 'center' });
+
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('Tm ISHAL — Custom Range Statement', margin + 22, 21);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(190, 210, 245);
+  doc.text(
+    `Period: ${formatDate(startDate)} to ${formatDate(endDate)} • Official Financial Report`,
+    margin + 22,
+    26.5
+  );
+
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(
+    `Date: ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+    pageWidth - margin - 6,
+    21,
+    { align: 'right' }
+  );
+
+  // Summary KPI Cards
+  const kpiY = 48;
+  const colWidth = (contentWidth - 6) / 3;
+
+  // Inflow Card
+  doc.setFillColor(240, 253, 244);
+  doc.roundedRect(margin, kpiY, colWidth, 20, 2, 2, 'F');
+  doc.setFontSize(7.5);
+  doc.setTextColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TOTAL COLLECTIONS (INFLOW)', margin + 4, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(formatPDFCurrency(collections), margin + 4, kpiY + 13);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Cash: ${formatPDFCurrency(cashInflow)} | Bank: ${formatPDFCurrency(bankInflow)}`, margin + 4, kpiY + 17.5);
+
+  // Outflow Card
+  doc.setFillColor(255, 241, 242);
+  doc.roundedRect(margin + colWidth + 3, kpiY, colWidth, 20, 2, 2, 'F');
+  doc.setFontSize(7.5);
+  doc.setTextColor(roseRed[0], roseRed[1], roseRed[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TOTAL EXPENSES (OUTFLOW)', margin + colWidth + 7, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(formatPDFCurrency(totalExpenseAmount), margin + colWidth + 7, kpiY + 13);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Cash: ${formatPDFCurrency(cashOutflow)} | Bank: ${formatPDFCurrency(bankOutflow)}`, margin + colWidth + 7, kpiY + 17.5);
+
+  // Net Balance Card
+  doc.setFillColor(240, 249, 255);
+  doc.roundedRect(margin + (colWidth + 3) * 2, kpiY, colWidth, 20, 2, 2, 'F');
+  doc.setFontSize(7.5);
+  doc.setTextColor(accentBlue[0], accentBlue[1], accentBlue[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('NET PERIOD BALANCE', margin + (colWidth + 3) * 2 + 4, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(
+    `${netMargin >= 0 ? '+' : ''}${formatPDFCurrency(netMargin)}`,
+    margin + (colWidth + 3) * 2 + 4,
+    kpiY + 13
+  );
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${filteredTxs.length} Transactions Recorded`, margin + (colWidth + 3) * 2 + 4, kpiY + 17.5);
+
+  // Itemized Transactions Table
+  const tableRows = filteredTxs.map((tx) => [
+    formatDate(tx.date),
+    tx.transactionId || '-',
+    tx.nameOrCategory || '-',
+    tx.event || '-',
+    tx.transactionType || '-',
+    (tx.paymentMethod || 'cash').toUpperCase(),
+    tx.paymentStatus || 'Recorded',
+    `${tx.transactionType === 'Contribution' ? '+' : '-'}${formatPDFCurrency(tx.amount)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: 72,
+    margin: { left: margin, right: margin },
+    head: [['Date', 'TX ID', 'Description', 'Event', 'Type', 'Mode', 'Status', 'Amount']],
+    body: tableRows.length > 0 ? tableRows : [['-', '-', 'No transactions recorded in this range.', '-', '-', '-', '-', 'Rs. 0']],
+    theme: 'grid',
+    headStyles: {
+      fillColor: [primaryNavy[0], primaryNavy[1], primaryNavy[2]],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8,
+      halign: 'left',
+    },
+    styles: {
+      fontSize: 7.5,
+      textColor: [textDark[0], textDark[1], textDark[2]],
+      lineColor: [borderLight[0], borderLight[1], borderLight[2]],
+      lineWidth: 0.2,
+      cellPadding: 2.5,
+    },
+    columnStyles: {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 16, fontStyle: 'bold' },
+      2: { cellWidth: 'auto', fontStyle: 'bold' },
+      3: { cellWidth: 26 },
+      4: { cellWidth: 22 },
+      5: { cellWidth: 14, halign: 'center' },
+      6: { cellWidth: 16, halign: 'center' },
+      7: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+  });
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, pageHeight - 10, pageWidth - margin, pageHeight - 10);
+
+    doc.text(
+      `IFO • Tm ISHAL Custom Period Statement (${startDate} to ${endDate})`,
+      margin,
+      pageHeight - 6
+    );
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 6, {
+      align: 'right',
+    });
+  }
+
+  doc.save(`Tm_ISHAL_Statement_${startDate}_to_${endDate}.pdf`);
+}
+

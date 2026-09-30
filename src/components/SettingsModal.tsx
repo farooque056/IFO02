@@ -424,7 +424,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <div className="pt-2 text-center text-xs text-slate-500 space-y-1">
             <p className="font-bold text-slate-300">IFO — Ishal Finance Organizer</p>
             <p>Designed for the <strong className="text-slate-200">Tm ISHAL</strong> Community</p>
-            <p className="text-[11px] text-slate-500">Free, Local-First, Instant Group Accounting</p>
+            <p className="text-[11.5px] font-bold text-blue-400">Developed by Farooque PP</p>
+            <p className="text-[11px] text-slate-500">Free, Cloud-Synced Group Accounting</p>
           </div>
         </div>
       </div>

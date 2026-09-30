@@ -710,13 +710,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Financial Footer */}
-                  <div className="pt-3 border-t border-slate-800/70 flex items-center justify-between gap-2">
+                  {/* Financial Footer: Spent, Collected, and Prominently Highlighted Balance */}
+                  <div className="pt-3 border-t border-slate-800/70 flex items-center justify-between gap-2.5 flex-wrap">
+                    {/* Total Spent */}
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-medium uppercase tracking-wider">
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">
                         Total Spent
                       </span>
-                      <span className="text-base font-extrabold font-mono-num text-white leading-tight">
+                      <span className="text-sm sm:text-base font-extrabold font-mono-num text-white leading-tight">
                         {formatINR(summary.totalCost)}
                       </span>
                       <span className="text-[10px] text-slate-400 block font-mono-num font-medium">
@@ -724,31 +725,74 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="text-right flex items-center gap-2">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block font-medium uppercase tracking-wider">
-                          Collected
-                        </span>
-                        <span className="text-sm font-extrabold font-mono-num text-emerald-400 leading-tight block">
-                          {formatINR(financials.evTotalCollections)}
-                        </span>
+                    {/* Total Collected */}
+                    <div className="text-left sm:text-center">
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">
+                        Collected
+                      </span>
+                      <span className="text-sm sm:text-base font-extrabold font-mono-num text-emerald-400 leading-tight block">
+                        {formatINR(financials.evTotalCollections)}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block font-mono-num font-medium">
+                        {summary.paidMembersCount}/{summary.splittingMemberCount} Paid
+                      </span>
+                    </div>
+
+                    {/* Prominently Highlighted & Understandable Balance Badge */}
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <div
+                        className={`px-3 py-1.5 rounded-xl border text-right shadow-sm transition-all ${
+                          financials.evBalance !== null && financials.evBalance > 0
+                            ? 'bg-emerald-950/90 border-emerald-500/60 shadow-emerald-950/50'
+                            : financials.evBalance !== null && financials.evBalance < 0
+                            ? 'bg-rose-950/90 border-rose-500/60 shadow-rose-950/50'
+                            : 'bg-blue-950/90 border-blue-500/50'
+                        }`}
+                      >
                         <span
-                          className={`text-[10px] font-mono-num font-semibold block ${
+                          className={`text-[9.5px] font-black uppercase tracking-wider flex items-center justify-end gap-1 ${
                             financials.evBalance !== null && financials.evBalance > 0
                               ? 'text-emerald-400'
                               : financials.evBalance !== null && financials.evBalance < 0
                               ? 'text-rose-400'
-                              : 'text-emerald-400'
+                              : 'text-blue-300'
+                          }`}
+                        >
+                          {financials.evBalance !== null && financials.evBalance > 0 ? (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Surplus Balance
+                            </>
+                          ) : financials.evBalance !== null && financials.evBalance < 0 ? (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                              Pending Deficit
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                              Fully Settled
+                            </>
+                          )}
+                        </span>
+                        <span
+                          className={`text-xs sm:text-sm font-black font-mono-num block leading-tight ${
+                            financials.evBalance !== null && financials.evBalance > 0
+                              ? 'text-emerald-300'
+                              : financials.evBalance !== null && financials.evBalance < 0
+                              ? 'text-rose-300'
+                              : 'text-blue-200'
                           }`}
                         >
                           {financials.evBalance !== null && financials.evBalance !== 0
                             ? financials.evBalance > 0
-                              ? `Bal: +${formatINR(financials.evBalance)}`
-                              : `Bal: ${formatINR(financials.evBalance)}`
-                            : 'Settled'}
+                              ? `+${formatINR(financials.evBalance)}`
+                              : `${formatINR(financials.evBalance)}`
+                            : '₹0 (Balanced)'}
                         </span>
                       </div>
-                      <div className="w-7 h-7 rounded-xl bg-slate-800/60 group-hover:bg-blue-950/80 flex items-center justify-center text-slate-400 group-hover:text-blue-400 transition-colors shrink-0 ml-1">
+
+                      <div className="w-7 h-7 rounded-xl bg-slate-800/60 group-hover:bg-blue-950/80 flex items-center justify-center text-slate-400 group-hover:text-blue-400 transition-colors shrink-0">
                         <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                       </div>
                     </div>

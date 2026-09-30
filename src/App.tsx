@@ -94,7 +94,7 @@ function MainLayout() {
       <Navbar onOpenSettings={() => setIsSettingsOpen(true)} />
 
       {/* Main Container framed cleanly for mobile & desktop */}
-      <main id="main-content" className="flex-1 max-w-md md:max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto w-full px-3.5 sm:px-6 pt-5 pb-28">
+      <main id="main-content" className="flex-1 max-w-md md:max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto w-full px-3.5 sm:px-6 pt-5 pb-4">
         {activeTab === 'dashboard' && (
           <DashboardView
             onSelectEvent={(id) => setSelectedEventId(id)}
@@ -126,6 +126,13 @@ function MainLayout() {
           />
         )}
       </main>
+
+      {/* Footer Attribution: Screen downside with 50% opacity */}
+      <footer className="text-center pb-24 sm:pb-20 pt-2 text-xs opacity-50 select-none">
+        <p className="text-[11px] text-slate-400 font-medium flex items-center justify-center gap-1.5">
+          <span>Developed by <strong className="text-blue-400 font-bold">Farooque PP</strong></span>
+        </p>
+      </footer>
 
       {/* Bottom Sticky 3-Tab Bar with Central Action Button */}
       <BottomNav onOpenQuickCreate={() => setIsQuickCreateOpen(true)} />
