@@ -113,7 +113,7 @@ export interface FundState {
 
 export type TabType = 'dashboard' | 'events' | 'members' | 'transactions';
 
-export type TransactionType = 'Contribution' | 'Expense' | 'Opening Balance';
+export type TransactionType = 'Contribution' | 'Expense' | 'Opening Balance' | 'Member Credit' | 'Credit Repayment';
 export type TransactionStatus = 'Paid' | 'Unpaid' | 'Recorded';
 
 export interface TransactionRecord {

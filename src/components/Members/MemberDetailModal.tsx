@@ -356,11 +356,47 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
             </div>
           )}
 
+          {/* Active Member Credit Note Advance Banner if any */}
+          {memberTotalCreditOwed > 0 && (
+            <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-600/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md shadow-amber-950/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-950 border border-amber-500/80 text-amber-400 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-amber-200">
+                      Active Credit Note from Balance:
+                    </span>
+                    <span className="text-xs font-extrabold text-amber-300 font-mono-num">
+                      {formatINR(memberTotalCreditOwed)}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-900/80 text-amber-300 border border-amber-700">
+                      {memberActiveCredits.length} advance(s)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-300/80 mt-0.5">
+                    Disbursed directly from Tm ISHAL Group Balance. Member can repay in partial or full installments.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setActiveTab('credit')}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <span>View Advances & Repay</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Navigation Tabs */}
-          <div className="flex border-b border-slate-800 gap-2">
+          <div className="flex border-b border-slate-800 gap-2 overflow-x-auto scrollbar-none">
             <button
               onClick={() => setActiveTab('events')}
-              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'events'
                   ? 'border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-xl'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -372,7 +408,7 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
 
             <button
               onClick={() => setActiveTab('expenses')}
-              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'expenses'
                   ? 'border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-xl'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -383,8 +419,20 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('credit')}
+              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'credit'
+                  ? 'border-amber-500 text-amber-400 bg-amber-500/10 rounded-t-xl'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Credit Notes ({memberCreditNotes.length})</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('whatsapp')}
-              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              className={`py-2 px-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'whatsapp'
                   ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-xl'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -536,7 +584,211 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: WHATSAPP STATEMENT PREVIEW */}
+          {/* TAB 3: CREDIT NOTES & WELFARE ADVANCES (FROM BALANCE) */}
+          {activeTab === 'credit' && (
+            <div className="space-y-4">
+              {/* Header Overview Banner */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/60 via-[#111A2E] to-indigo-950/50 border border-blue-800/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-bold shrink-0 mt-0.5">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>Welfare Credit Facility</span>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-900/70 text-blue-300 border border-blue-700/60">
+                        From Group Balance
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Members can get credit amounts directly from our Balance amount for emergency or welfare support. Repayments return directly into group funds.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsIssueCreditModalOpen(true)}
+                  className="py-2 px-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-4 h-4 stroke-[3px]" />
+                  <span>Get Credit from Balance</span>
+                </button>
+              </div>
+
+              {/* 3 Metric Cards for this Member */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-[#111A2E] p-3 rounded-2xl border border-slate-800">
+                  <span className="text-[9.5px] uppercase font-bold text-slate-400 block tracking-wider">
+                    Total Disbursed
+                  </span>
+                  <p className="text-sm sm:text-base font-extrabold text-white font-mono-num mt-0.5">
+                    {formatINR(memberTotalCreditDisbursed)}
+                  </p>
+                  <span className="text-[10px] text-slate-500 font-medium">{memberCreditNotes.length} vouchers</span>
+                </div>
+
+                <div className="bg-[#111A2E] p-3 rounded-2xl border border-slate-800">
+                  <span className="text-[9.5px] uppercase font-bold text-emerald-400 block tracking-wider">
+                    Repaid to Balance
+                  </span>
+                  <p className="text-sm sm:text-base font-extrabold text-emerald-400 font-mono-num mt-0.5">
+                    {formatINR(memberTotalCreditRepaid)}
+                  </p>
+                  <span className="text-[10px] text-slate-500 font-medium">Returned</span>
+                </div>
+
+                <div className="bg-[#111A2E] p-3 rounded-2xl border border-slate-800">
+                  <span className="text-[9.5px] uppercase font-bold text-amber-400 block tracking-wider">
+                    Outstanding Owed
+                  </span>
+                  <p className="text-sm sm:text-base font-extrabold text-amber-400 font-mono-num mt-0.5">
+                    {formatINR(memberTotalCreditOwed)}
+                  </p>
+                  <span className="text-[10px] text-slate-500 font-medium">{memberActiveCredits.length} active</span>
+                </div>
+              </div>
+
+              {/* Credit Vouchers List */}
+              <div className="space-y-3">
+                {memberCreditNotes.length === 0 ? (
+                  <div className="p-8 text-center bg-[#111A2E] border border-slate-800 rounded-2xl space-y-3">
+                    <CreditCard className="w-10 h-10 text-slate-600 mx-auto" />
+                    <div>
+                      <p className="text-sm font-bold text-white">No credit notes issued for {member.name}</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                        If needed, this member can receive an interest-free advance disbursed directly from our group Balance amount.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setIsIssueCreditModalOpen(true)}
+                      className="mt-2 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Issue Credit Note from Balance</span>
+                    </button>
+                  </div>
+                ) : (
+                  memberCreditNotes.map((cn) => {
+                    const isSettled = cn.status === 'settled';
+                    const isPartial = cn.status === 'partially_repaid';
+                    const progressPercent = cn.amount > 0 ? Math.min(100, Math.round((cn.repaidAmount / cn.amount) * 100)) : 0;
+
+                    return (
+                      <div
+                        key={cn.id}
+                        className="bg-[#111A2E] border border-slate-800/90 rounded-2xl p-4 shadow-xs space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-blue-400 bg-blue-950/80 px-2 py-0.5 rounded border border-blue-800/80">
+                              {cn.voucherNo}
+                            </span>
+                            <span
+                              className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                isSettled
+                                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80'
+                                  : isPartial
+                                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80'
+                                  : 'bg-amber-950/80 text-amber-300 border-amber-800/80'
+                              }`}
+                            >
+                              {isSettled ? '✓ Fully Settled' : isPartial ? 'Partially Repaid' : 'Active (Unpaid)'}
+                            </span>
+                            <span className="text-xs text-slate-400 font-mono-num">
+                              Issued: {formatDate(cn.date)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                            {!isSettled && (
+                              <button
+                                onClick={() => setSelectedCreditNoteForRepayment(cn)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Repay into Balance</span>
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => downloadCreditNoteVoucherPDF(cn)}
+                              className="p-1.5 bg-[#0D1527] hover:bg-[#15223C] border border-slate-700/80 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+                              title="Download PDF Voucher"
+                            >
+                              <Download className="w-3.5 h-3.5 text-blue-400" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-semibold text-white">{cn.purpose}</p>
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 flex-wrap">
+                            <span>Disbursed Mode: <strong className="text-slate-200 capitalize">{cn.paymentMethod}</strong></span>
+                            {cn.dueDate && (
+                              <span>Due: <strong className="text-slate-200">{formatDate(cn.dueDate)}</strong></span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Financial Figures */}
+                        <div className="grid grid-cols-3 gap-2 bg-[#0D1527] p-2.5 rounded-xl border border-slate-800/80 text-center font-mono-num">
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Total Issued</span>
+                            <span className="text-xs font-bold text-white">{formatINR(cn.amount)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Repaid</span>
+                            <span className="text-xs font-bold text-emerald-400">{formatINR(cn.repaidAmount)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Remaining</span>
+                            <span className={`text-xs font-extrabold ${cn.remainingAmount > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                              {formatINR(cn.remainingAmount)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 font-mono-num">
+                            <span>Repayment Progress</span>
+                            <span>{progressPercent}% Settled</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-500 ${
+                                isSettled ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-amber-500'
+                              }`}
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Repayments History */}
+                        {cn.repayments && cn.repayments.length > 0 && (
+                          <div className="pt-2 border-t border-slate-800/70 text-xs">
+                            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1">
+                              Repayment History ({cn.repayments.length} installments)
+                            </span>
+                            <div className="space-y-1">
+                              {cn.repayments.map((rep) => (
+                                <div key={rep.id} className="flex items-center justify-between text-[11px] text-slate-300 bg-[#0B1120] px-2.5 py-1 rounded-lg">
+                                  <span className="font-mono-num text-slate-400">{formatDate(rep.date)} ({rep.paymentMethod})</span>
+                                  <span className="font-bold text-emerald-400 font-mono-num">+{formatINR(rep.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: WHATSAPP STATEMENT PREVIEW */}
           {activeTab === 'whatsapp' && (
             <div className="space-y-4">
               <div className="bg-[#111A2E] border border-slate-800 rounded-2xl p-4 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed shadow-inner">
@@ -599,6 +851,24 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Issue Credit Note Modal with this member preselected */}
+      {isIssueCreditModalOpen && (
+        <IssueCreditNoteModal
+          isOpen={isIssueCreditModalOpen}
+          onClose={() => setIsIssueCreditModalOpen(false)}
+          preselectedMemberId={member.id}
+        />
+      )}
+
+      {/* Record Credit Repayment Modal */}
+      {selectedCreditNoteForRepayment && (
+        <RecordCreditRepaymentModal
+          isOpen={!!selectedCreditNoteForRepayment}
+          onClose={() => setSelectedCreditNoteForRepayment(null)}
+          creditNote={selectedCreditNoteForRepayment}
+        />
+      )}
     </div>
   );
 };

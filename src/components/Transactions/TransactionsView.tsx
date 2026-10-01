@@ -16,6 +16,8 @@ import {
   downloadCommunityMasterReportPDF,
   downloadCustomRangePDF,
 } from '../../utils/pdfGenerator';
+import { MemberCreditModal } from './MemberCreditModal';
+import { MemberCreditStatementModal } from './MemberCreditStatementModal';
 import {
   Scale,
   BookOpenText,
@@ -53,9 +55,13 @@ import {
   Layers,
   ArrowRight,
   Share2,
+  Plus,
+  Coins,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 
-type AuditTabMode = 'monthly' | 'yearly' | 'members' | 'events' | 'audit' | 'ledger';
+type AuditTabMode = 'ledger' | 'credit' | 'monthly' | 'yearly' | 'members' | 'events' | 'audit';
 
 export const TransactionsView: React.FC = () => {
   const {
@@ -66,13 +72,30 @@ export const TransactionsView: React.FC = () => {
     openingBalance,
     totalCollected,
     totalSpending,
+    netTreasuryBalance,
+    totalMemberCreditGiven,
+    totalMemberCreditRepaid,
+    netMemberCreditOutstanding,
+    deleteTransaction,
     searchQuery,
     setSearchQuery,
     setSelectedEventId,
   } = useFinance();
 
-  // Active Audit & Statements Sub-Tab
-  const [activeMode, setActiveMode] = useState<AuditTabMode>('monthly');
+  // Active Audit & Statements Sub-Tab: Default to Recent Transactions (General Ledger)
+  const [activeMode, setActiveMode] = useState<AuditTabMode>('ledger');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+
+  // Member Credit Modal state
+  const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
+  const [creditModalMode, setCreditModalMode] = useState<'give_credit' | 'repayment'>('give_credit');
+  const [creditModalMemberId, setCreditModalMemberId] = useState<string | undefined>(undefined);
+  const [creditTxToEdit, setCreditTxToEdit] = useState<TransactionRecord | null>(null);
+  const [journalTxToDelete, setJournalTxToDelete] = useState<TransactionRecord | null>(null);
+  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [statementModalMemberId, setStatementModalMemberId] = useState<string | undefined>(undefined);
+  const [creditMemberSearch, setCreditMemberSearch] = useState<string>('');
+  const [creditStatusFilter, setCreditStatusFilter] = useState<'all' | 'outstanding' | 'cleared'>('all');
 
   // Ledger Filter states
   const [selectedEventFilter, setSelectedEventFilter] = useState<string>('all');
@@ -143,9 +166,31 @@ export const TransactionsView: React.FC = () => {
       .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid' && tx.paymentMethod === 'bank')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
-    const closingBalance = openingBalance + verifiedCollections - verifiedExpenses;
-    const cashInHand = cashContributions - cashExpenses;
-    const bankBalance = openingBalance + bankContributions - bankExpenses;
+    // Cash vs Bank split across recorded member credit disbursements
+    const cashCreditGiven = transactions
+      .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid' && (tx.paymentMethod || 'cash') === 'cash')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+    const bankCreditGiven = transactions
+      .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid' && tx.paymentMethod === 'bank')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+    // Cash vs Bank split across recorded credit repayments
+    const cashCreditRepaid = transactions
+      .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid' && (tx.paymentMethod || 'cash') === 'cash')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+    const bankCreditRepaid = transactions
+      .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid' && tx.paymentMethod === 'bank')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+    const totalCreditDisbursed = cashCreditGiven + bankCreditGiven;
+    const totalCreditRecovered = cashCreditRepaid + bankCreditRepaid;
+    const netCreditOut = Math.max(0, totalCreditDisbursed - totalCreditRecovered);
+
+    const closingBalance = openingBalance + verifiedCollections + totalCreditRecovered - verifiedExpenses - totalCreditDisbursed;
+    const cashInHand = cashContributions + cashCreditRepaid - cashExpenses - cashCreditGiven;
+    const bankBalance = openingBalance + bankContributions + bankCreditRepaid - bankExpenses - bankCreditGiven;
 
     const discrepancy = Math.abs(closingBalance - (cashInHand + bankBalance));
 
@@ -158,6 +203,13 @@ export const TransactionsView: React.FC = () => {
       bankContributions,
       cashExpenses,
       bankExpenses,
+      cashCreditGiven,
+      bankCreditGiven,
+      cashCreditRepaid,
+      bankCreditRepaid,
+      totalCreditDisbursed,
+      totalCreditRecovered,
+      netCreditOut,
       cashInHand,
       bankBalance,
       discrepancy,
@@ -396,10 +448,10 @@ export const TransactionsView: React.FC = () => {
   }, [activeEventStatement, expenses, members, transactions]);
 
   // ==========================================
-  // 7. LEDGER JOURNAL FILTERING
+  // 7. LEDGER JOURNAL FILTERING & RECENT SORTING
   // ==========================================
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
+    const list = transactions.filter((tx) => {
       // Calendar Custom Date Range filter
       if (calendarFilterMode === 'custom') {
         if (customStartDate && (!tx.date || tx.date < customStartDate)) return false;
@@ -426,6 +478,23 @@ export const TransactionsView: React.FC = () => {
 
       return matchesEvent && matchesType && matchesStatus && matchesSearch;
     });
+
+    // Sort transactions: Newest First by default so recent entries appear at top
+    return list.sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      if (sortOrder === 'newest') {
+        if (dateB !== dateA) return dateB - dateA;
+        const numA = parseInt(a.transactionId.replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(b.transactionId.replace(/\D/g, ''), 10) || 0;
+        return numB - numA;
+      } else {
+        if (dateA !== dateB) return dateA - dateB;
+        const numA = parseInt(a.transactionId.replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(b.transactionId.replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+      }
+    });
   }, [
     transactions,
     selectedEventFilter,
@@ -433,10 +502,9 @@ export const TransactionsView: React.FC = () => {
     selectedStatusFilter,
     activeSearch,
     calendarFilterMode,
-    selectedMonth,
-    selectedYear,
     customStartDate,
     customEndDate,
+    sortOrder,
   ]);
 
   // ==========================================
@@ -554,6 +622,71 @@ export const TransactionsView: React.FC = () => {
     setTemporaryCopied('event_wa');
   };
 
+  // Member Credit Summaries
+  const memberCreditSummaryList = useMemo(() => {
+    return members.map((m) => {
+      const memberTxs = transactions.filter((tx) => tx.memberId === m.id);
+      const creditGiven = memberTxs
+        .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid')
+        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+      const creditRepaid = memberTxs
+        .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid')
+        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+      const outstanding = Math.max(0, creditGiven - creditRepaid);
+      return {
+        member: m,
+        creditGiven,
+        creditRepaid,
+        outstanding,
+        hasHistory: creditGiven > 0 || creditRepaid > 0,
+      };
+    });
+  }, [members, transactions]);
+
+  const displayedCreditMembers = useMemo(() => {
+    return memberCreditSummaryList.filter((item) => {
+      const matchesSearch =
+        !creditMemberSearch ||
+        item.member.name.toLowerCase().includes(creditMemberSearch.toLowerCase()) ||
+        item.member.phone?.includes(creditMemberSearch) ||
+        item.member.role?.toLowerCase().includes(creditMemberSearch.toLowerCase());
+
+      if (!matchesSearch) return false;
+
+      if (creditStatusFilter === 'outstanding') return item.outstanding > 0;
+      if (creditStatusFilter === 'cleared') return item.hasHistory && item.outstanding === 0;
+      return true;
+    });
+  }, [memberCreditSummaryList, creditMemberSearch, creditStatusFilter]);
+
+  const creditTransactions = useMemo(() => {
+    return transactions
+      .filter((tx) => tx.transactionType === 'Member Credit' || tx.transactionType === 'Credit Repayment')
+      .sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
+  }, [transactions]);
+
+  const handleCopyCreditWhatsApp = (item: { member: Member; creditGiven: number; creditRepaid: number; outstanding: number }) => {
+    const text =
+      `💳 *Tm ISHAL — Member Credit & Advance Statement*\n` +
+      `👤 *Member:* ${item.member.name} (${item.member.role || 'Member'})\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💰 *Total Credit Disbursed from Fund:* ${formatINR(item.creditGiven)}\n` +
+      `✅ *Total Repaid Back to Fund:* ${formatINR(item.creditRepaid)}\n` +
+      `⚖️ *Current Outstanding Balance:* ${formatINR(item.outstanding)}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      (item.outstanding > 0
+        ? `Kindly clear the outstanding credit balance of ${formatINR(item.outstanding)} via Cash or UPI (Bank Transfer) when convenient.\n`
+        : `Credit account is fully settled and cleared. Thank you!\n`) +
+      `_Official Record • Tm ISHAL Treasury_`;
+
+    navigator.clipboard.writeText(text);
+    setTemporaryCopied(`credit_wa_${item.member.id}`);
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Header Banner */}
@@ -572,6 +705,20 @@ export const TransactionsView: React.FC = () => {
 
         {/* Global Export Actions */}
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setCreditModalMode('give_credit');
+              setCreditModalMemberId(undefined);
+              setIsCreditModalOpen(true);
+            }}
+            className="py-2 px-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-amber-600/20 active:scale-95 transition-all cursor-pointer"
+            title="Give credit / advance to a member directly from group balance"
+          >
+            <Coins className="w-3.5 h-3.5" />
+            <span>Give Member Credit</span>
+          </button>
+
           <button
             onClick={() =>
               downloadCommunityMasterReportPDF(events, expenses, members, totalCollected, openingBalance, transactions)
@@ -595,7 +742,7 @@ export const TransactionsView: React.FC = () => {
       </div>
 
       {/* Audited Financial Health Bar (Live KPI Grid) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5">
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
           <div className="flex items-center justify-between text-emerald-400 text-xs mb-1 font-semibold">
             <span>Total Inflow</span>
@@ -629,7 +776,24 @@ export const TransactionsView: React.FC = () => {
           <span className="text-[10px] text-slate-500 font-mono-num">Opening: {formatINR(treasuryAudit.openingBalance)}</span>
         </div>
 
-        <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
+        <div
+          onClick={() => setActiveMode('credit')}
+          className="bg-[#111A2E]/90 p-3 rounded-2xl border border-amber-900/50 hover:border-amber-600/70 transition-all shadow-xs cursor-pointer group"
+          title="Click to view Member Credit & Loans statement"
+        >
+          <div className="flex items-center justify-between text-amber-400 text-xs mb-1 font-semibold">
+            <span>Member Credit</span>
+            <Coins className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+          </div>
+          <p className="text-base sm:text-lg font-extrabold text-amber-400 font-mono-num">
+            {formatINR(totalMemberCreditGiven)}
+          </p>
+          <span className="text-[10px] text-slate-400 font-mono-num block truncate">
+            Due: <strong className="text-amber-300">{formatINR(netMemberCreditOutstanding)}</strong>
+          </span>
+        </div>
+
+        <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs col-span-2 sm:col-span-4 lg:col-span-1">
           <div className="flex items-center justify-between text-blue-400 text-xs mb-1 font-semibold">
             <span>Cash vs Bank</span>
             <Landmark className="w-3.5 h-3.5" />
@@ -713,12 +877,18 @@ export const TransactionsView: React.FC = () => {
       {/* Feature Mode Switcher (Horizontal Pill Bar) */}
       <div className="bg-[#0D1527] p-1.5 rounded-2xl border border-slate-800/80 flex items-center gap-1 overflow-x-auto scrollbar-none">
         {[
+          { id: 'ledger', label: 'Recent Transactions', icon: BookOpenText },
+          {
+            id: 'credit',
+            label: 'Member Credit / Loans',
+            icon: Coins,
+            badge: netMemberCreditOutstanding > 0 ? formatINR(netMemberCreditOutstanding) : undefined,
+          },
           { id: 'monthly', label: 'Monthly Statement', icon: CalendarDays },
           { id: 'yearly', label: 'Yearly Statement', icon: CalendarRange },
           { id: 'members', label: 'Members Statement', icon: Users },
           { id: 'events', label: 'Event Statements', icon: Sparkles },
           { id: 'audit', label: 'Treasury Balance', icon: Scale },
-          { id: 'ledger', label: 'General Ledger', icon: BookOpenText },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeMode === tab.id;
@@ -734,10 +904,365 @@ export const TransactionsView: React.FC = () => {
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
+              {tab.badge && (
+                <span className="text-[10px] font-mono-num px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {tab.badge}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODE: MEMBER CREDIT & ADVANCES (DISBURSED FROM BALANCE) */}
+      {/* ========================================================================= */}
+      {activeMode === 'credit' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Header Card */}
+          <div className="bg-[#111A2E]/90 p-4 rounded-3xl border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-800/60">
+                  Fund Balance Facility
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  Available Treasury: <strong className="text-cyan-400">{formatINR(netTreasuryBalance)}</strong>
+                </span>
+              </div>
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 mt-1">
+                <Coins className="w-5 h-5 text-amber-400" />
+                Member Credit & Advance Facility
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Disburse emergency assistance and credit advances to members directly from our group balance amount. Track all repayments and individual balances.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreditModalMode('give_credit');
+                  setCreditModalMemberId(undefined);
+                  setIsCreditModalOpen(true);
+                }}
+                className="py-2 px-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-amber-600/30 active:scale-95 transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Give Credit to Member</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreditModalMode('repayment');
+                  setCreditModalMemberId(undefined);
+                  setIsCreditModalOpen(true);
+                }}
+                className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <ArrowDownLeft className="w-3.5 h-3.5" />
+                <span>Record Repayment</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Credit KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-[#0E172B] p-3.5 rounded-2xl border border-amber-900/60">
+              <span className="text-[11px] font-semibold text-amber-400 block mb-0.5">Total Credit Given</span>
+              <p className="text-base sm:text-lg font-extrabold text-white font-mono-num">
+                {formatINR(totalMemberCreditGiven)}
+              </p>
+              <span className="text-[10px] text-slate-500">Disbursed from Group Balance</span>
+            </div>
+
+            <div className="bg-[#0E172B] p-3.5 rounded-2xl border border-emerald-900/60">
+              <span className="text-[11px] font-semibold text-emerald-400 block mb-0.5">Total Repaid Back</span>
+              <p className="text-base sm:text-lg font-extrabold text-white font-mono-num">
+                {formatINR(totalMemberCreditRepaid)}
+              </p>
+              <span className="text-[10px] text-slate-500">Returned into Group Fund</span>
+            </div>
+
+            <div className="bg-[#0E172B] p-3.5 rounded-2xl border border-slate-800/80">
+              <span className="text-[11px] font-semibold text-rose-400 block mb-0.5">Current Outstanding</span>
+              <p className="text-base sm:text-lg font-extrabold text-rose-400 font-mono-num">
+                {formatINR(netMemberCreditOutstanding)}
+              </p>
+              <span className="text-[10px] text-slate-500">
+                {displayedCreditMembers.filter((m) => m.outstanding > 0).length} Members with Dues
+              </span>
+            </div>
+
+            <div className="bg-[#0E172B] p-3.5 rounded-2xl border border-cyan-900/60">
+              <span className="text-[11px] font-semibold text-cyan-400 block mb-0.5">Fund Balance Available</span>
+              <p className="text-base sm:text-lg font-extrabold text-cyan-400 font-mono-num">
+                {formatINR(netTreasuryBalance)}
+              </p>
+              <span className="text-[10px] text-slate-500">Available to disburse as credit</span>
+            </div>
+          </div>
+
+          {/* Member Credit Directory & Actions */}
+          <div className="bg-[#111A2E]/90 p-4 rounded-3xl border border-slate-800/90 space-y-3.5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-amber-400" />
+                  Member Credit Accounts ({members.length})
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Select any member to disburse credit from balance or record repayments
+                </p>
+              </div>
+
+              {/* Status Filter & Search */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search member..."
+                    value={creditMemberSearch}
+                    onChange={(e) => setCreditMemberSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 bg-[#0D1527] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-36 sm:w-44"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1 bg-[#0D1527] p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setCreditStatusFilter('all')}
+                    className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
+                      creditStatusFilter === 'all'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    All ({members.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreditStatusFilter('outstanding')}
+                    className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
+                      creditStatusFilter === 'outstanding'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    With Dues ({memberCreditSummaryList.filter((m) => m.outstanding > 0).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreditStatusFilter('cleared')}
+                    className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition-all ${
+                      creditStatusFilter === 'cleared'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Cleared
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Members Grid / List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+              {displayedCreditMembers.map((item) => {
+                const hasDues = item.outstanding > 0;
+                return (
+                  <div
+                    key={item.member.id}
+                    className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
+                      hasDues
+                        ? 'bg-[#121B2F] border-amber-900/40 hover:border-amber-700/60'
+                        : 'bg-[#0E172B] border-slate-800/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-xs"
+                          style={{ backgroundColor: item.member.avatarColor || '#3b82f6' }}
+                        >
+                          {item.member.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="text-xs font-bold text-white truncate">{item.member.name}</h4>
+                            {item.member.role && (
+                              <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-semibold border border-slate-700">
+                                {item.member.role}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{item.member.phone || 'No phone'}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Outstanding</span>
+                        <span
+                          className={`text-sm font-extrabold font-mono-num ${
+                            hasDues ? 'text-amber-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          {formatINR(item.outstanding)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Breakdown bar */}
+                    <div className="flex items-center justify-between text-[11px] font-mono-num pt-2 border-t border-slate-800/60 text-slate-400">
+                      <span>Total Given: <strong className="text-amber-300">{formatINR(item.creditGiven)}</strong></span>
+                      <span>Repaid: <strong className="text-emerald-300">{formatINR(item.creditRepaid)}</strong></span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreditModalMode('give_credit');
+                          setCreditModalMemberId(item.member.id);
+                          setIsCreditModalOpen(true);
+                        }}
+                        className="flex-1 py-1.5 px-2 bg-[#15233E] hover:bg-amber-600/30 text-amber-300 border border-amber-800/50 hover:border-amber-600 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Give Credit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreditModalMode('repayment');
+                          setCreditModalMemberId(item.member.id);
+                          setIsCreditModalOpen(true);
+                        }}
+                        className="flex-1 py-1.5 px-2 bg-[#15233E] hover:bg-emerald-600/30 text-emerald-300 border border-emerald-800/50 hover:border-emerald-600 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      >
+                        <ArrowDownLeft className="w-3 h-3" />
+                        <span>Repay</span>
+                      </button>
+
+                      {item.hasHistory && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCreditWhatsApp(item)}
+                          className="py-1.5 px-2.5 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 border border-emerald-800/60 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          title="Copy WhatsApp statement for member"
+                        >
+                          {copiedKey === `credit_wa_${item.member.id}` ? (
+                            <Check className="w-3 h-3 text-emerald-300" />
+                          ) : (
+                            <Share2 className="w-3 h-3 text-emerald-400" />
+                          )}
+                          <span>{copiedKey === `credit_wa_${item.member.id}` ? 'Copied' : 'Share'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Credit & Repayment Activity Audit Trail */}
+          <div className="bg-[#111A2E]/90 rounded-3xl border border-slate-800/90 overflow-hidden shadow-xs">
+            <div className="px-4 py-3 border-b border-slate-800/80 flex items-center justify-between bg-[#0D1527]/60">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-amber-400" />
+                Credit & Repayment Journal ({creditTransactions.length} Entries)
+              </span>
+              <span className="text-[11px] text-slate-400">Audited Disbursements & Inflows</span>
+            </div>
+
+            {creditTransactions.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                <Coins className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+                <p className="text-sm font-semibold text-slate-300">No member credit entries recorded yet</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Click "Give Credit to Member" above to disburse an advance from group balance
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800/60 max-h-[380px] overflow-y-auto scrollbar-thin">
+                {creditTransactions.map((tx) => {
+                  const isDisbursement = tx.transactionType === 'Member Credit';
+                  return (
+                    <div
+                      key={tx.transactionId}
+                      className="p-3.5 hover:bg-[#131F37]/60 transition-colors flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <div
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
+                            isDisbursement
+                              ? 'bg-amber-950/80 text-amber-400 border border-amber-800/60'
+                              : 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                          }`}
+                        >
+                          {isDisbursement ? (
+                            <ArrowUpRight className="w-4 h-4 stroke-[2.4px]" />
+                          ) : (
+                            <ArrowDownLeft className="w-4 h-4 stroke-[2.4px]" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[10px] font-bold text-blue-400 bg-blue-950/60 px-1.5 py-0.2 rounded border border-blue-800/60">
+                              {tx.transactionId}
+                            </span>
+                            <span className="font-bold text-white">{tx.nameOrCategory}</span>
+                            <span
+                              className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full border ${
+                                isDisbursement
+                                  ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+                                  : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+                              }`}
+                            >
+                              {isDisbursement ? 'Disbursed from Balance' : 'Repaid to Fund'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 flex-wrap">
+                            <span>{formatDate(tx.date)}</span>
+                            <span>•</span>
+                            <span className="uppercase font-mono text-slate-300">{tx.paymentMethod || 'bank'}</span>
+                            {tx.notes && (
+                              <>
+                                <span>•</span>
+                                <span className="italic text-slate-400 truncate max-w-[220px]">{tx.notes}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <p
+                          className={`text-sm font-extrabold font-mono-num ${
+                            isDisbursement ? 'text-amber-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          {isDisbursement ? '-' : '+'}
+                          {formatINR(tx.amount)}
+                        </p>
+                        <span className="text-[10px] text-slate-500 block">
+                          {isDisbursement ? 'Fund Outflow' : 'Fund Inflow'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* MODE 1: MONTHLY STATEMENT */}
@@ -1519,10 +2044,22 @@ export const TransactionsView: React.FC = () => {
                 <span>(+) Total Verified Member Contributions:</span>
                 <span className="font-bold">+{formatINR(treasuryAudit.verifiedCollections)}</span>
               </div>
+              {treasuryAudit.totalCreditRecovered > 0 && (
+                <div className="flex items-center justify-between text-xs sm:text-sm text-emerald-400">
+                  <span>(+) Member Credit Repaid into Balance:</span>
+                  <span className="font-bold">+{formatINR(treasuryAudit.totalCreditRecovered)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-xs sm:text-sm text-rose-400">
                 <span>(-) Total Verified Expenses & Vouchers:</span>
                 <span className="font-bold">-{formatINR(treasuryAudit.verifiedExpenses)}</span>
               </div>
+              {treasuryAudit.totalCreditDisbursed > 0 && (
+                <div className="flex items-center justify-between text-xs sm:text-sm text-amber-400">
+                  <span>(-) Member Credit Disbursed from Balance:</span>
+                  <span className="font-bold">-{formatINR(treasuryAudit.totalCreditDisbursed)}</span>
+                </div>
+              )}
               <div className="pt-2 border-t border-slate-700/80 flex items-center justify-between text-sm sm:text-base font-extrabold text-cyan-300">
                 <span>(=) Audited Treasury Net Balance:</span>
                 <span>{formatINR(treasuryAudit.closingBalance)}</span>
@@ -1539,7 +2076,7 @@ export const TransactionsView: React.FC = () => {
                   <span className="font-mono-num text-sm">{formatINR(treasuryAudit.cashInHand)}</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Cash Collections ({formatINR(treasuryAudit.cashContributions)}) minus Cash Outflows ({formatINR(treasuryAudit.cashExpenses)})
+                  Cash Inflows ({formatINR(treasuryAudit.cashContributions + treasuryAudit.cashCreditRepaid)}) minus Cash Outflows ({formatINR(treasuryAudit.cashExpenses + treasuryAudit.cashCreditGiven)})
                 </p>
               </div>
 
@@ -1551,7 +2088,7 @@ export const TransactionsView: React.FC = () => {
                   <span className="font-mono-num text-sm">{formatINR(treasuryAudit.bankBalance)}</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Opening Balance + Digital Inflows ({formatINR(treasuryAudit.bankContributions)}) minus Bank Outflows ({formatINR(treasuryAudit.bankExpenses)})
+                  Opening Balance + Digital Inflows ({formatINR(treasuryAudit.bankContributions + treasuryAudit.bankCreditRepaid)}) minus Bank Outflows ({formatINR(treasuryAudit.bankExpenses + treasuryAudit.bankCreditGiven)})
                 </p>
               </div>
             </div>
@@ -1560,10 +2097,35 @@ export const TransactionsView: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 6: GENERAL LEDGER JOURNAL */}
+      {/* MODE 1 (DEFAULT): RECENT TRANSACTIONS & GENERAL LEDGER */}
       {/* ========================================================================= */}
       {activeMode === 'ledger' && (
         <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Header Card for Recent Transactions */}
+          <div className="bg-[#111A2E]/90 p-4 rounded-3xl border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-400">Transaction History</span>
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                <BookOpenText className="w-5 h-5 text-blue-400" />
+                Recent Transactions & Ledger Journal
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Every member contribution, expense voucher, and settlement entry in real-time
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+                className="px-3 py-2 bg-[#0D1527] hover:bg-[#15223C] border border-slate-700/80 rounded-xl text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                title="Toggle between Newest First and Oldest First"
+              >
+                <span>Sort: {sortOrder === 'newest' ? '⏱️ Newest First' : '📅 Oldest First'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Search & Filter Bar */}
           <div className="bg-[#111A2E]/90 p-3.5 rounded-2xl border border-slate-800/90 space-y-2.5 shadow-xs">
             <div className="flex flex-col sm:flex-row gap-2">
@@ -1596,7 +2158,7 @@ export const TransactionsView: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
                 <span className="text-[11px] font-semibold text-slate-400 mr-1">Type:</span>
-                {['all', 'Contribution', 'Expense', 'Opening Balance'].map((type) => (
+                {['all', 'Contribution', 'Expense', 'Member Credit', 'Credit Repayment', 'Opening Balance'].map((type) => (
                   <button
                     key={type}
                     onClick={() => setSelectedTypeFilter(type)}
@@ -1639,7 +2201,9 @@ export const TransactionsView: React.FC = () => {
               <span className="text-xs font-bold text-slate-300">
                 Showing {filteredTransactions.length} of {transactions.length} Transactions
               </span>
-              <span className="text-[11px] text-slate-500">Sorted chronologically</span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {sortOrder === 'newest' ? '⏱️ Newest first' : '📅 Oldest first'}
+              </span>
             </div>
 
             {filteredTransactions.length === 0 ? (
@@ -1653,6 +2217,8 @@ export const TransactionsView: React.FC = () => {
                 {filteredTransactions.map((tx) => {
                   const isContribution = tx.transactionType === 'Contribution';
                   const isExpense = tx.transactionType === 'Expense';
+                  const isMemberCredit = tx.transactionType === 'Member Credit';
+                  const isCreditRepay = tx.transactionType === 'Credit Repayment';
 
                   return (
                     <div
@@ -1662,17 +2228,23 @@ export const TransactionsView: React.FC = () => {
                       <div className="flex items-start gap-3 min-w-0">
                         <div
                           className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                            isContribution
+                            isContribution || isCreditRepay
                               ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
                               : isExpense
                               ? 'bg-rose-950/60 text-rose-400 border border-rose-800/60'
+                              : isMemberCredit
+                              ? 'bg-amber-950/60 text-amber-400 border border-amber-800/60'
                               : 'bg-cyan-950/60 text-cyan-400 border border-cyan-800/60'
                           }`}
                         >
                           {isContribution ? (
                             <ArrowDownLeft className="w-4 h-4" />
+                          ) : isCreditRepay ? (
+                            <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
                           ) : isExpense ? (
                             <ArrowUpRight className="w-4 h-4" />
+                          ) : isMemberCredit ? (
+                            <ArrowUpRight className="w-4 h-4 text-amber-400" />
                           ) : (
                             <Wallet className="w-4 h-4" />
                           )}
@@ -1688,14 +2260,22 @@ export const TransactionsView: React.FC = () => {
                             </span>
                             <span
                               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                tx.paymentStatus === 'Paid'
+                                isMemberCredit
+                                  ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+                                  : isCreditRepay
+                                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+                                  : tx.paymentStatus === 'Paid'
                                   ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
                                   : tx.paymentStatus === 'Unpaid'
                                   ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
                                   : 'bg-slate-800 text-slate-300 border-slate-700'
                               }`}
                             >
-                              {tx.paymentStatus}
+                              {isMemberCredit
+                                ? 'Credit Disbursed'
+                                : isCreditRepay
+                                ? 'Credit Repaid'
+                                : tx.paymentStatus}
                             </span>
                             {isTxOverdue(tx) && (
                               <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800 flex items-center gap-1">
@@ -1734,14 +2314,16 @@ export const TransactionsView: React.FC = () => {
                       <div className="text-right shrink-0">
                         <p
                           className={`text-sm sm:text-base font-extrabold font-mono-num ${
-                            isContribution
+                            isContribution || isCreditRepay
                               ? 'text-emerald-400'
                               : isExpense
                               ? 'text-rose-400'
+                              : isMemberCredit
+                              ? 'text-amber-400'
                               : 'text-cyan-400'
                           }`}
                         >
-                          {isContribution ? '+' : isExpense ? '-' : ''}
+                          {isContribution || isCreditRepay ? '+' : isExpense || isMemberCredit ? '-' : ''}
                           {formatINR(tx.amount)}
                         </p>
                         {tx.runningBalance !== undefined && (
@@ -1758,6 +2340,14 @@ export const TransactionsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Member Credit & Advance Modal */}
+      <MemberCreditModal
+        isOpen={isCreditModalOpen}
+        onClose={() => setIsCreditModalOpen(false)}
+        defaultMode={creditModalMode}
+        preSelectedMemberId={creditModalMemberId}
+      />
     </div>
   );
 };

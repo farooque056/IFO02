@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { EventItem, Expense, Member, TabType, TransactionRecord } from '../types';
+import { EventItem, Expense, Member, PaymentMethod, TabType, TransactionRecord } from '../types';
 import { getEventFinancials } from '../utils/formatters';
 import {
   INITIAL_EVENTS,
@@ -94,9 +94,28 @@ interface FinanceContextType {
   updateMember: (id: string, memberData: Partial<Member>) => void;
   deleteMember: (id: string) => { success: boolean; message?: string };
 
+  // Member Credit / Loan Actions
+  giveMemberCredit: (data: {
+    memberId: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    date: string;
+    notes?: string;
+  }) => string;
+  recordCreditRepayment: (data: {
+    memberId: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    date: string;
+    notes?: string;
+  }) => string;
+  totalMemberCreditGiven: number;
+  totalMemberCreditRepaid: number;
+  netMemberCreditOutstanding: number;
+
   // Data management
   resetToDefaults: () => void;
-  eraseAllData: () => void;
+  eraseAllData: (developerCode?: string) => { success: boolean; message: string };
   exportToJSON: () => string;
   importFromJSON: (jsonString: string) => { success: boolean; message: string };
   
@@ -320,6 +339,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return `TX${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // Helper to check if record arrays have actually changed to avoid unnecessary re-renders
+  const areRecordsEqual = <T,>(a: T[], b: T[]): boolean => {
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length) return false;
+    return JSON.stringify(a) === JSON.stringify(b);
+  };
+
   // Subscribe to real-time Firestore database updates immediately on mount
   useEffect(() => {
     let isMounted = true;
@@ -329,7 +355,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const unsub = subscribeToCloudSync({
       onMembers: (cloudMembers) => {
         if (isMounted && cloudMembers) {
-          setMembers(cloudMembers);
+          setMembers((prev) => (areRecordsEqual(prev, cloudMembers) ? prev : cloudMembers));
         }
       },
       onEvents: (cloudEvents) => {
@@ -365,17 +391,17 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
             return updated;
           });
-          setEvents(normalized);
+          setEvents((prev) => (areRecordsEqual(prev, normalized) ? prev : normalized));
         }
       },
       onExpenses: (cloudExpenses) => {
         if (isMounted && cloudExpenses) {
-          setExpenses(cloudExpenses);
+          setExpenses((prev) => (areRecordsEqual(prev, cloudExpenses) ? prev : cloudExpenses));
         }
       },
       onTransactions: (cloudTransactions) => {
         if (isMounted && cloudTransactions) {
-          setTransactions(cloudTransactions);
+          setTransactions((prev) => (areRecordsEqual(prev, cloudTransactions) ? prev : cloudTransactions));
         }
       },
       onSettings: (cloudSettings) => {
@@ -497,14 +523,30 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         fetchLatestFromCloud()
           .then((data) => {
-            if (data.members.length > 0) setMembers(data.members);
-            if (data.events.length > 0) setEvents(data.events);
-            if (data.expenses.length > 0) setExpenses(data.expenses);
-            if (data.transactions.length > 0) setTransactions(data.transactions);
+            if (data.members.length > 0) {
+              setMembers((prev) => (areRecordsEqual(prev, data.members) ? prev : data.members));
+            }
+            if (data.events.length > 0) {
+              setEvents((prev) => (areRecordsEqual(prev, data.events) ? prev : data.events));
+            }
+            if (data.expenses.length > 0) {
+              setExpenses((prev) => (areRecordsEqual(prev, data.expenses) ? prev : data.expenses));
+            }
+            if (data.transactions.length > 0) {
+              setTransactions((prev) => (areRecordsEqual(prev, data.transactions) ? prev : data.transactions));
+            }
             if (data.settings) {
-              setOpeningBalanceState(data.settings.openingBalance ?? 7911);
+              setOpeningBalanceState((prev) =>
+                data.settings?.openingBalance !== undefined && data.settings.openingBalance !== prev
+                  ? data.settings.openingBalance
+                  : prev
+              );
               if (data.settings.customTotalCollected !== 73000 && data.settings.customTotalCollected !== 72700) {
-                setCustomTotalCollected(data.settings.customTotalCollected ?? null);
+                setCustomTotalCollected((prev) =>
+                  data.settings?.customTotalCollected !== undefined && data.settings.customTotalCollected !== prev
+                    ? data.settings.customTotalCollected
+                    : prev
+                );
               }
             }
             setLastCloudSync(new Date());
@@ -960,6 +1002,71 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
+  // Member Credit / Advance Actions (Disbursed directly from balance)
+  const giveMemberCredit = (data: {
+    memberId: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    date: string;
+    notes?: string;
+  }): string => {
+    const memberObj = members.find((m) => m.id === data.memberId);
+    const memberName = memberObj ? memberObj.name : 'Member';
+    const txId = getNextTransactionId(transactions);
+
+    const newTx: TransactionRecord = {
+      transactionId: txId,
+      event: 'Member Credit / Advance',
+      eventId: 'ev_member_credit',
+      date: data.date,
+      transactionType: 'Member Credit',
+      nameOrCategory: memberName,
+      amount: data.amount,
+      paymentStatus: 'Paid',
+      notes: data.notes || `Credit advance of ₹${data.amount} disbursed from group balance to ${memberName}`,
+      memberId: data.memberId,
+      paymentMethod: data.paymentMethod,
+      category: 'Member Credit Advance',
+      createdAt: new Date().toISOString(),
+    };
+
+    setTransactions((prev) => [newTx, ...prev]);
+    saveTransactionCloud(newTx).catch((err) => console.error('Cloud save member credit transaction error:', err));
+    return txId;
+  };
+
+  const recordCreditRepayment = (data: {
+    memberId: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    date: string;
+    notes?: string;
+  }): string => {
+    const memberObj = members.find((m) => m.id === data.memberId);
+    const memberName = memberObj ? memberObj.name : 'Member';
+    const txId = getNextTransactionId(transactions);
+
+    const newTx: TransactionRecord = {
+      transactionId: txId,
+      event: 'Member Credit / Advance',
+      eventId: 'ev_member_credit',
+      date: data.date,
+      transactionType: 'Credit Repayment',
+      nameOrCategory: memberName,
+      amount: data.amount,
+      paymentStatus: 'Paid',
+      notes: data.notes || `Credit repayment of ₹${data.amount} returned to fund balance by ${memberName}`,
+      memberId: data.memberId,
+      paymentMethod: data.paymentMethod,
+      category: 'Credit Repayment',
+      createdAt: new Date().toISOString(),
+    };
+
+    setTransactions((prev) => [newTx, ...prev]);
+    saveTransactionCloud(newTx).catch((err) => console.error('Cloud save credit repayment transaction error:', err));
+    return txId;
+  };
+
   // Member CRUD (Synced to Cloud in Real Time)
   const addMember = (memberData: Omit<Member, 'id' | 'createdAt'>): string => {
     const newId = 'm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
@@ -1037,7 +1144,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     resetCloudToDefaults().catch((err) => console.error('Cloud reset error:', err));
   };
 
-  const eraseAllData = () => {
+  const eraseAllData = (developerCode?: string): { success: boolean; message: string } => {
+    if (developerCode !== '28762876') {
+      return {
+        success: false,
+        message: 'Invalid Developer Code. Access denied.',
+      };
+    }
     setMembers([]);
     setEvents([]);
     setExpenses([]);
@@ -1045,6 +1158,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setOpeningBalanceState(0);
     setCustomTotalCollected(null);
     setSelectedEventId(null);
+    setIsAdminUnlocked(true);
     try {
       localStorage.setItem(STORAGE_KEYS.CLEARED, 'true');
       localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify([]));
@@ -1055,6 +1169,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.removeItem(STORAGE_KEYS.TOTAL_COLLECTED);
     } catch {}
     eraseAllCloudData().catch((err) => console.error('Cloud erase error:', err));
+    return {
+      success: true,
+      message: 'All application and cloud data permanently erased using Developer Code.',
+    };
   };
 
   const exportToJSON = (): string => {
@@ -1125,6 +1243,21 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
   }, [expenses]);
 
+  // Member Credit / Loan Aggregates
+  const totalMemberCreditGiven = useMemo(() => {
+    return transactions
+      .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  }, [transactions]);
+
+  const totalMemberCreditRepaid = useMemo(() => {
+    return transactions
+      .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  }, [transactions]);
+
+  const netMemberCreditOutstanding = Math.max(0, totalMemberCreditGiven - totalMemberCreditRepaid);
+
   // Real-time aggregate financials across all events - guaranteed matching dashboard
   const allEventsDashboardTotals = useMemo(() => {
     let disbursed = 0;
@@ -1134,12 +1267,15 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       disbursed += fin.summary.totalCost;
       collections += fin.evTotalCollections;
     });
+
+    const netCreditDisbursed = totalMemberCreditGiven - totalMemberCreditRepaid;
+
     return {
-      disbursed,
-      collections,
-      balance: collections - disbursed,
+      disbursed: disbursed + totalMemberCreditGiven,
+      collections: collections + totalMemberCreditRepaid,
+      balance: collections - disbursed - netCreditDisbursed,
     };
-  }, [events, expenses, members, transactions]);
+  }, [events, expenses, members, transactions, totalMemberCreditGiven, totalMemberCreditRepaid]);
 
   const totalFundsAvailable = allEventsDashboardTotals.collections;
   const netTreasuryBalance = allEventsDashboardTotals.balance;
@@ -1164,6 +1300,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         netTreasuryBalance,
         totalCashSpending,
         totalBankSpending,
+        totalMemberCreditGiven,
+        totalMemberCreditRepaid,
+        netMemberCreditOutstanding,
+        giveMemberCredit,
+        recordCreditRepayment,
         isAdminUnlocked,
         sharedPin,
         activeTab,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { EventItem, EventStatus, EventType, PaymentMethod, EventSplitMode } from '../../types';
 import { EVENT_TYPE_CATEGORIES, EVENT_TYPE_LABELS } from '../../data/initialData';
@@ -65,49 +65,67 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const [initialExpenseCategory, setInitialExpenseCategory] = useState<string>('');
   const [initialExpenseTitle, setInitialExpenseTitle] = useState<string>('');
 
+  // Refs to track modal open/change so background syncs never clear user inputs
+  const prevIsOpenRef = useRef(false);
+  const prevEventIdRef = useRef<string | null | undefined>(undefined);
+
   // Initialize form
   useEffect(() => {
-    if (isOpen) {
-      if (eventToEdit) {
-        setName(eventToEdit.name);
-        setType(eventToEdit.type);
-        setDate(eventToEdit.date);
-        setLocation(eventToEdit.location || '');
-        setStatus(eventToEdit.status);
-        setWeddingPersonId(eventToEdit.weddingPersonId || '');
-        setSelectedMemberIds(eventToEdit.memberIds || []);
-        setCategories(eventToEdit.categories || EVENT_TYPE_CATEGORIES[eventToEdit.type]);
-        setNotes(eventToEdit.notes || '');
-        setSplitMode(eventToEdit.splitMode || 'even');
-        setTargetSplitAmount(eventToEdit.targetSplitAmount ? String(eventToEdit.targetSplitAmount) : '');
-        setMinimumAmountPerPerson(eventToEdit.minimumAmountPerPerson ? String(eventToEdit.minimumAmountPerPerson) : '500');
-        setInitialAmount('');
-        setPaidById('fund');
-        setPaymentMethod('cash');
-      } else {
-        setName('');
-        setType('iftar');
-        setDate(defaultDate || new Date().toISOString().slice(0, 10));
-        setLocation('');
-        setStatus('active');
-        setWeddingPersonId('');
-        // Default to all members selected
-        setSelectedMemberIds(members.map((m) => m.id));
-        setCategories(EVENT_TYPE_CATEGORIES.iftar);
-        setNotes('');
-        setSplitMode('even');
-        setTargetSplitAmount('');
-        setMinimumAmountPerPerson('500');
-        setInitialAmount('');
-        setPaidById('fund');
-        setPaymentMethod('cash');
-        setInitialExpenseCategory(EVENT_TYPE_CATEGORIES.iftar[0] || 'Food & Catering');
-        setInitialExpenseTitle('');
-      }
-      setNewCatInput('');
-      setShowDeleteConfirm(false);
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const eventChanged = (eventToEdit?.id ?? null) !== (prevEventIdRef.current ?? null);
+
+    prevIsOpenRef.current = isOpen;
+    prevEventIdRef.current = eventToEdit ? eventToEdit.id : null;
+
+    if (!isOpen) return;
+    if (!justOpened && !eventChanged) return;
+
+    if (eventToEdit) {
+      setName(eventToEdit.name);
+      setType(eventToEdit.type);
+      setDate(eventToEdit.date);
+      setLocation(eventToEdit.location || '');
+      setStatus(eventToEdit.status);
+      setWeddingPersonId(eventToEdit.weddingPersonId || '');
+      setSelectedMemberIds(eventToEdit.memberIds || []);
+      setCategories(eventToEdit.categories || EVENT_TYPE_CATEGORIES[eventToEdit.type]);
+      setNotes(eventToEdit.notes || '');
+      setSplitMode(eventToEdit.splitMode || 'even');
+      setTargetSplitAmount(eventToEdit.targetSplitAmount ? String(eventToEdit.targetSplitAmount) : '');
+      setMinimumAmountPerPerson(eventToEdit.minimumAmountPerPerson ? String(eventToEdit.minimumAmountPerPerson) : '500');
+      setInitialAmount('');
+      setPaidById('fund');
+      setPaymentMethod('cash');
+    } else {
+      setName('');
+      setType('iftar');
+      setDate(defaultDate || new Date().toISOString().slice(0, 10));
+      setLocation('');
+      setStatus('active');
+      setWeddingPersonId('');
+      // Default to all members selected
+      setSelectedMemberIds(members.map((m) => m.id));
+      setCategories(EVENT_TYPE_CATEGORIES.iftar);
+      setNotes('');
+      setSplitMode('even');
+      setTargetSplitAmount('');
+      setMinimumAmountPerPerson('500');
+      setInitialAmount('');
+      setPaidById('fund');
+      setPaymentMethod('cash');
+      setInitialExpenseCategory(EVENT_TYPE_CATEGORIES.iftar[0] || 'Food & Catering');
+      setInitialExpenseTitle('');
     }
-  }, [isOpen, eventToEdit, defaultDate, members]);
+    setNewCatInput('');
+    setShowDeleteConfirm(false);
+  }, [isOpen, eventToEdit, defaultDate]);
+
+  // Fallback: If creating new event and members were still loading, default selected members once loaded
+  useEffect(() => {
+    if (isOpen && !eventToEdit && selectedMemberIds.length === 0 && members.length > 0) {
+      setSelectedMemberIds(members.map((m) => m.id));
+    }
+  }, [isOpen, eventToEdit, selectedMemberIds.length, members]);
 
   // Live split calculation
   const parsedAmount = parseFloat(initialAmount) || 0;

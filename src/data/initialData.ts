@@ -1,4 +1,4 @@
-import { Event, Expense, Member, Transaction, EventType } from '../types';
+import { Event, Expense, Member, Transaction, EventType, CreditNote } from '../types';
 
 export const EVENT_CATEGORIES: Record<EventType, string[]> = {
   wedding: [
@@ -1968,3 +1968,51 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     "notes": "Member contribution share for Asker Ali's Wedding"
   }
 ];
+
+export const INITIAL_CREDIT_NOTES: CreditNote[] = [
+  {
+    id: 'cn_1727650001_welf',
+    voucherNo: 'CN-2026-001',
+    memberId: 'm4',
+    memberName: 'Farooque PP',
+    amount: 5000,
+    date: '2026-09-10',
+    dueDate: '2026-10-15',
+    paymentMethod: 'bank',
+    purpose: 'Emergency Welfare Support',
+    status: 'partially_repaid',
+    repaidAmount: 2000,
+    remainingAmount: 3000,
+    repayments: [
+      {
+        id: 'rep_1727650100',
+        creditNoteId: 'cn_1727650001_welf',
+        amount: 2000,
+        date: '2026-09-22',
+        paymentMethod: 'bank',
+        notes: '1st Installment repaid via UPI',
+        createdAt: '2026-09-22T10:00:00.000Z',
+      },
+    ],
+    notes: 'Approved interest-free welfare advance from Group Balance',
+    createdAt: '2026-09-10T09:30:00.000Z',
+  },
+  {
+    id: 'cn_1727650002_med',
+    voucherNo: 'CN-2026-002',
+    memberId: 'm7',
+    memberName: 'Haneefa',
+    amount: 3000,
+    date: '2026-09-15',
+    dueDate: '2026-10-20',
+    paymentMethod: 'cash',
+    purpose: 'Medical Advance Support',
+    status: 'active',
+    repaidAmount: 0,
+    remainingAmount: 3000,
+    repayments: [],
+    notes: 'Temporary medical assistance from Tm ISHAL Treasury Balance',
+    createdAt: '2026-09-15T14:15:00.000Z',
+  },
+];
+

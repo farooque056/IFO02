@@ -12,6 +12,8 @@ import { downloadCommunityMasterReportPDF } from '../../utils/pdfGenerator';
 import { EVENT_TYPE_LABELS } from '../../data/initialData';
 import { RecordMemberPaymentModal } from '../Events/RecordMemberPaymentModal';
 import { PendingMembersModal } from './PendingMembersModal';
+import { IssueCreditNoteModal } from '../CreditNotes/IssueCreditNoteModal';
+import { RecordCreditRepaymentModal } from '../CreditNotes/RecordCreditRepaymentModal';
 import {
   Receipt,
   ChevronDown,
@@ -40,7 +42,7 @@ import {
   Lock,
   Clock,
 } from 'lucide-react';
-import { Expense } from '../../types';
+import { Expense, CreditNote } from '../../types';
 
 interface DashboardViewProps {
   onSelectEvent: (eventId: string) => void;
@@ -85,6 +87,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     transactions,
     totalCollected,
     totalSpending,
+    creditNotes,
+    totalCreditDisbursed,
+    totalCreditRepaid,
+    totalCreditOutstanding,
     setActiveTab,
     requireAuth,
     isAdminUnlocked,
@@ -94,6 +100,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   } = useFinance();
 
   const [showEventBreakdown, setShowEventBreakdown] = useState<boolean>(false);
+  const [isIssueCreditModalOpen, setIsIssueCreditModalOpen] = useState(false);
+  const [selectedCreditNoteForRepayment, setSelectedCreditNoteForRepayment] = useState<CreditNote | null>(null);
+
+  const activeCreditNotes = useMemo(() => creditNotes.filter((c) => c.status !== 'settled'), [creditNotes]);
 
   // Active event member payment recording state
   const [selectedPaymentEventId, setSelectedPaymentEventId] = useState<string | null>(null);
@@ -573,6 +583,137 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* 💳 Member Credit Note & Welfare Advances Facility (From Balance Amount) */}
+      <div className="bg-[#111A2E]/90 border border-slate-800/90 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-600/30 to-blue-600/30 border border-amber-500/40 text-amber-300 flex items-center justify-center font-bold shadow-xs shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                  Member Credit Note System
+                </h2>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-950/90 text-blue-300 border border-blue-800/70">
+                  Disbursed from Balance
+                </span>
+                {totalCreditOutstanding > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950/90 text-amber-300 border border-amber-800/80 font-mono-num">
+                    {activeCreditNotes.length} Active Advances
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                If needed, members can get a credit amount directly from our group Balance amount.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsIssueCreditModalOpen(true)}
+              className="py-2 px-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[3px]" />
+              <span>Get Credit from Balance</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('transactions')}
+              className="py-2 px-3 bg-[#0B1323] hover:bg-[#16233E] border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+            >
+              <span>Credit Ledger</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* 3 Overview Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="bg-[#0B1323] p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Total Credit Disbursed
+              </span>
+              <p className="text-base sm:text-lg font-extrabold text-white font-mono-num mt-0.5">
+                {formatINR(totalCreditDisbursed)}
+              </p>
+            </div>
+            <span className="text-[10.5px] text-slate-500 font-mono-num">{creditNotes.length} Vouchers</span>
+          </div>
+
+          <div className="bg-[#0B1323] p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">
+                Total Repaid to Balance
+              </span>
+              <p className="text-base sm:text-lg font-extrabold text-emerald-400 font-mono-num mt-0.5">
+                {formatINR(totalCreditRepaid)}
+              </p>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-800/60">
+              Returned
+            </span>
+          </div>
+
+          <div className="bg-[#0B1323] p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider">
+                Active Outstanding Balance
+              </span>
+              <p className="text-base sm:text-lg font-extrabold text-amber-400 font-mono-num mt-0.5">
+                {formatINR(totalCreditOutstanding)}
+              </p>
+            </div>
+            <span className="text-[10px] text-amber-400 font-bold bg-amber-950/70 px-2 py-0.5 rounded border border-amber-800/60">
+              {activeCreditNotes.length} Pending
+            </span>
+          </div>
+        </div>
+
+        {/* Active Credit Advances List Preview if any */}
+        {activeCreditNotes.length > 0 && (
+          <div className="space-y-2 pt-1">
+            <span className="text-[10.5px] uppercase font-bold text-slate-400 tracking-wider block">
+              Active Member Credit Advances:
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {activeCreditNotes.slice(0, 6).map((cn) => (
+                <div
+                  key={cn.id}
+                  className="p-3 bg-[#0B1323] hover:bg-[#111E38] border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between gap-2.5 transition-all shadow-xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-xs text-white truncate">{cn.memberName}</span>
+                      <span className="text-[9.5px] font-mono font-bold text-blue-400 bg-blue-950/80 px-1.5 py-0.2 rounded border border-blue-900/60">
+                        {cn.voucherNo}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate mt-0.5">{cn.purpose}</p>
+                    <div className="flex items-center gap-2 text-[10.5px] text-slate-500 mt-1 font-mono-num">
+                      <span>Issued: {formatDate(cn.date)}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-extrabold text-amber-400 font-mono-num block">
+                      {formatINR(cn.remainingAmount)}
+                    </span>
+                    <button
+                      onClick={() => setSelectedCreditNoteForRepayment(cn)}
+                      className="mt-1 px-2 py-0.8 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-[10.5px] font-bold shadow-xs transition-all cursor-pointer"
+                    >
+                      Repay
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 1. Active Functions Section */}
@@ -1287,6 +1428,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               markMemberPaid(eventId, memberId, paid);
             });
           }}
+        />
+      )}
+
+      {/* Issue Credit Note Modal */}
+      {isIssueCreditModalOpen && (
+        <IssueCreditNoteModal
+          isOpen={isIssueCreditModalOpen}
+          onClose={() => setIsIssueCreditModalOpen(false)}
+        />
+      )}
+
+      {/* Record Credit Repayment Modal */}
+      {selectedCreditNoteForRepayment && (
+        <RecordCreditRepaymentModal
+          isOpen={!!selectedCreditNoteForRepayment}
+          onClose={() => setSelectedCreditNoteForRepayment(null)}
+          creditNote={selectedCreditNoteForRepayment}
         />
       )}
     </div>

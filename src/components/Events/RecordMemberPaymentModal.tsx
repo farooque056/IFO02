@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { EventItem, PaymentMethod } from '../../types';
 import { formatINR, calculateEventSummary } from '../../utils/formatters';
@@ -83,38 +83,48 @@ export const RecordMemberPaymentModal: React.FC<RecordMemberPaymentModalProps> =
     return { totalPaid, share, owed, extraDonation, isDonor, isPaid, isExempt };
   }, [selectedMemberId, eventSummary]);
 
+  const prevIsOpenRef = useRef(false);
+  const prevMemberIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
-      const initialMemberId = preSelectedMemberId || (enrolledMembers[0]?.id || '');
-      setSelectedMemberId(initialMemberId);
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const memberChanged = preSelectedMemberId !== prevMemberIdRef.current;
 
-      const mem = members.find((m) => m.id === initialMemberId);
-      const memName = mem ? mem.name : 'Member';
+    prevIsOpenRef.current = isOpen;
+    prevMemberIdRef.current = preSelectedMemberId;
 
-      const memberSettlement = eventSummary.memberSettlement.find((m) => m.memberId === initialMemberId);
-      const isExempt = memberSettlement?.isExemptFromSplit || false;
-      const isPaid = memberSettlement?.status === 'paid' || memberSettlement?.status === 'settled';
-      const owed = isExempt || isPaid ? 0 : Math.max(0, (memberSettlement?.expectedShare || 0) - (memberSettlement?.totalPaid || 0));
+    if (!isOpen) return;
+    if (!justOpened && !memberChanged) return;
 
-      if (defaultAmount !== undefined && defaultAmount > 0) {
-        setAmount(String(defaultAmount));
-      } else if (isExempt || isPaid || owed === 0) {
-        setAmount('');
-      } else if (owed > 0) {
-        setAmount(String(owed));
-      } else {
-        setAmount(String(eventSummary.perMemberCost || 500));
-      }
+    const initialMemberId = preSelectedMemberId || (enrolledMembers[0]?.id || '');
+    setSelectedMemberId(initialMemberId);
 
-      setPaymentTitle(isExempt ? `Gift / Contribution - ${memName}` : `Share Settlement - ${memName}`);
-      setPaymentMethod('bank');
-      setDate(new Date().toISOString().slice(0, 10));
-      setNotes('');
-      setCategory('Member Contribution');
-      setRecordType('settlement');
-      setAddToTreasury(true);
+    const mem = members.find((m) => m.id === initialMemberId);
+    const memName = mem ? mem.name : 'Member';
+
+    const memberSettlement = eventSummary.memberSettlement.find((m) => m.memberId === initialMemberId);
+    const isExempt = memberSettlement?.isExemptFromSplit || false;
+    const isPaid = memberSettlement?.status === 'paid' || memberSettlement?.status === 'settled';
+    const owed = isExempt || isPaid ? 0 : Math.max(0, (memberSettlement?.expectedShare || 0) - (memberSettlement?.totalPaid || 0));
+
+    if (defaultAmount !== undefined && defaultAmount > 0) {
+      setAmount(String(defaultAmount));
+    } else if (isExempt || isPaid || owed === 0) {
+      setAmount('');
+    } else if (owed > 0) {
+      setAmount(String(owed));
+    } else {
+      setAmount(String(eventSummary.perMemberCost || 500));
     }
-  }, [isOpen, preSelectedMemberId, defaultAmount, eventSummary, enrolledMembers, members]);
+
+    setPaymentTitle(isExempt ? `Gift / Contribution - ${memName}` : `Share Settlement - ${memName}`);
+    setPaymentMethod('bank');
+    setDate(new Date().toISOString().slice(0, 10));
+    setNotes('');
+    setCategory('Member Contribution');
+    setRecordType('settlement');
+    setAddToTreasury(true);
+  }, [isOpen, preSelectedMemberId, defaultAmount]);
 
   // When member changes, update suggested amount & title
   const handleMemberChange = (mId: string) => {

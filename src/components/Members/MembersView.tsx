@@ -9,6 +9,7 @@ import {
 import { downloadMemberPDF, downloadRosterPDF } from '../../utils/pdfGenerator';
 import { MemberDetailModal } from './MemberDetailModal';
 import { BatchImportModal } from './BatchImportModal';
+import { IssueCreditNoteModal } from '../CreditNotes/IssueCreditNoteModal';
 import {
   Users,
   UserPlus,
@@ -35,6 +36,7 @@ import {
   Trophy,
   ArrowUpRight,
   Clock,
+  Plus,
 } from 'lucide-react';
 
 interface MembersViewProps {
@@ -46,6 +48,7 @@ interface MembersViewProps {
 type FilterRole =
   | 'all'
   | 'due'
+  | 'credit'
   | 'settled'
   | 'late'
   | 'critical-overdue'
@@ -70,17 +73,22 @@ export const MembersView: React.FC<MembersViewProps> = ({
   onEditMember,
   onSelectEvent,
 }) => {
-  const { members, events, expenses, transactions, searchQuery, requireAuth } = useFinance();
+  const { members, events, expenses, transactions, creditNotes, totalCreditOutstanding, searchQuery, requireAuth } = useFinance();
   const [selectedMemberDetail, setSelectedMemberDetail] = useState<Member | null>(null);
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<FilterRole>('all');
   const [sortOption, setSortOption] = useState<SortOption>('name-asc');
   const [localSearch, setLocalSearch] = useState('');
+  const [isIssueCreditModalOpen, setIsIssueCreditModalOpen] = useState(false);
+  const [selectedMemberForCreditId, setSelectedMemberForCreditId] = useState<string | undefined>(undefined);
 
   // Compute aggregated stats for each member using event donated amounts & pending calculations
   const memberStats = useMemo(() => {
     return members.map((member) => {
       const financials = getMemberFinancials(member, events, expenses, transactions);
+      const activeCredits = creditNotes.filter((c) => c.memberId === member.id && c.status !== 'settled');
+      const totalCreditOwed = activeCredits.reduce((sum, c) => sum + (Number(c.remainingAmount) || 0), 0);
+      const allCreditNotes = creditNotes.filter((c) => c.memberId === member.id);
 
       return {
         member,
@@ -99,9 +107,12 @@ export const MembersView: React.FC<MembersViewProps> = ({
         lateEventsCount: financials.lateEventsCount,
         isLatePayer: financials.isLatePayer,
         timelinessBadge: financials.timelinessBadge,
+        totalCreditOwed,
+        activeCreditNotesCount: activeCredits.length,
+        allCreditNotesCount: allCreditNotes.length,
       };
     });
-  }, [members, events, expenses, transactions]);
+  }, [members, events, expenses, transactions, creditNotes]);
 
   // Combined totals & community delay metrics
   const overallMetrics = useMemo(() => {
@@ -110,6 +121,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
     let totalPendingDues = 0;
     let membersWithPending = 0;
     let donorsCount = 0;
+    let membersWithActiveCreditCount = 0;
 
     memberStats.forEach((s) => {
       if (s.joinedEventsCount > 0) activeCount++;
@@ -120,6 +132,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
       }
       if (s.totalPaid > 0) {
         donorsCount++;
+      }
+      if (s.totalCreditOwed > 0) {
+        membersWithActiveCreditCount++;
       }
     });
 
@@ -136,6 +151,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
       totalPendingDues,
       membersWithPending,
       donorsCount,
+      membersWithActiveCreditCount,
       communityDelayMetrics,
     };
   }, [memberStats, members, events, expenses, transactions]);
@@ -166,6 +182,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
             if (member.role?.toLowerCase().includes('coordinator')) return false;
           } else if (roleFilter === 'due') {
             if (totalPending <= 0) return false;
+          } else if (roleFilter === 'credit') {
+            if (totalCreditOwed <= 0) return false;
           } else if (roleFilter === 'settled') {
             if (!isAllClear) return false;
           } else if (roleFilter === 'late') {
@@ -392,8 +410,51 @@ export const MembersView: React.FC<MembersViewProps> = ({
           </div>
         </div>
 
+        {/* Welfare Credit Facility Banner */}
+        <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-[#0B1323]/80 p-3 rounded-2xl border border-slate-800/90">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-950/90 border border-blue-700/60 text-blue-400 flex items-center justify-center shrink-0">
+              <CreditCard className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Member Credit Note System</span>
+                <span className="text-[10px] text-amber-300 font-extrabold bg-amber-950/80 border border-amber-800/80 px-2 py-0.5 rounded-full font-mono-num">
+                  Active Advances: {formatINR(totalCreditOutstanding)}
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-400">
+                If needed, members can get credit amounts disbursed directly from our group Balance amount.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setSelectedMemberForCreditId(undefined);
+                setIsIssueCreditModalOpen(true);
+              }}
+              className="py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[3px]" />
+              <span>Issue Credit Note</span>
+            </button>
+            <button
+              onClick={() => setRoleFilter(roleFilter === 'credit' ? 'all' : 'credit')}
+              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                roleFilter === 'credit'
+                  ? 'bg-amber-600 text-white border-amber-500 shadow-xs'
+                  : 'bg-[#111A2E] text-slate-300 hover:text-white border-slate-700/80'
+              }`}
+            >
+              <span>{roleFilter === 'credit' ? 'Showing Credits' : `Credit Holders (${overallMetrics.membersWithActiveCreditCount})`}</span>
+            </button>
+          </div>
+        </div>
+
         {/* Quick Export & Actions Toolbar */}
-        <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
             <Sparkles className="w-3.5 h-3.5 text-blue-400" />
             <span>Roster Tools:</span>
@@ -456,6 +517,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
               >
                 <option value="all">Filter: All ({members.length})</option>
                 <option value="due">Filter: With Dues ({overallMetrics.membersWithPending})</option>
+                <option value="credit">Filter: Active Credit Notes ({overallMetrics.membersWithActiveCreditCount})</option>
                 <option value="late">Filter: Late Payers ({overallMetrics.communityDelayMetrics.totalLatePayersCount})</option>
                 <option value="critical-overdue">Filter: Critical Overdue ({overallMetrics.communityDelayMetrics.totalCriticalOverdueCount})</option>
                 <option value="prompt">Filter: Prompt Payers ({overallMetrics.communityDelayMetrics.totalPromptPayersCount})</option>
@@ -520,6 +582,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
               isAllClear,
               avgPaymentDelayDays,
               timelinessBadge,
+              totalCreditOwed,
+              activeCreditNotesCount,
             }) => {
               const rawPhone = (member.phone || '').replace(/[^0-9]/g, '');
               const cleanPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
@@ -590,12 +654,38 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           >
                             {isAllClear ? '✓ Settled' : `Due: ${formatINR(totalPending)}`}
                           </span>
+
+                          {totalCreditOwed > 0 && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedMemberDetail(member);
+                              }}
+                              className="text-[9.5px] font-bold px-2 py-0.5 rounded-md bg-amber-950/80 text-amber-300 border border-amber-700/80 flex items-center gap-1 font-mono-num cursor-pointer hover:bg-amber-900/90"
+                              title={`Active credit advance of ${formatINR(totalCreditOwed)} disbursed from group Balance`}
+                            >
+                              <CreditCard className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Credit: {formatINR(totalCreditOwed)}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     {/* Direct Action Icons Bar */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Issue Credit Note from Balance */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMemberForCreditId(member.id);
+                          setIsIssueCreditModalOpen(true);
+                        }}
+                        className="p-2 rounded-xl text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 transition-colors"
+                        title="Get / Issue Credit Note from Balance"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                      </button>
                       {/* Direct WhatsApp Action */}
                       <button
                         onClick={(e) => {
@@ -756,6 +846,23 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   </div>
                 )}
 
+                {/* Active Credit Banner in Member Card if applicable */}
+                {totalCreditOwed > 0 && (
+                  <div
+                    onClick={() => setSelectedMemberDetail(member)}
+                    className="mt-2.5 px-3 py-1.5 bg-amber-950/30 hover:bg-amber-950/50 border border-amber-800/60 rounded-xl flex items-center justify-between text-xs cursor-pointer transition-colors"
+                  >
+                    <span className="text-amber-300 font-semibold flex items-center gap-1.5 text-[11px]">
+                      <CreditCard className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Active Welfare Credit Advance:</span>
+                    </span>
+                    <span className="font-extrabold text-amber-300 font-mono-num text-[11px] flex items-center gap-1">
+                      <span>{formatINR(totalCreditOwed)} from Balance</span>
+                      <ArrowUpRight className="w-3 h-3 text-amber-400" />
+                    </span>
+                  </div>
+                )}
+
                 {/* Footer hint */}
                 <div
                   onClick={() => setSelectedMemberDetail(member)}
@@ -793,6 +900,18 @@ export const MembersView: React.FC<MembersViewProps> = ({
         <BatchImportModal
           isOpen={isBatchImportOpen}
           onClose={() => setIsBatchImportOpen(false)}
+        />
+      )}
+
+      {/* Issue Credit Note Modal */}
+      {isIssueCreditModalOpen && (
+        <IssueCreditNoteModal
+          isOpen={isIssueCreditModalOpen}
+          onClose={() => {
+            setIsIssueCreditModalOpen(false);
+            setSelectedMemberForCreditId(undefined);
+          }}
+          preselectedMemberId={selectedMemberForCreditId}
         />
       )}
     </div>

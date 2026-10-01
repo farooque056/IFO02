@@ -1822,3 +1822,179 @@ export function downloadCustomRangePDF(
   doc.save(`Tm_ISHAL_Statement_${startDate}_to_${endDate}.pdf`);
 }
 
+/**
+ * Generate and download an official Member Credit & Advance Statement PDF
+ */
+export function downloadMemberCreditStatementPDF(
+  member: Member,
+  creditTransactions: Transaction[],
+  summary: { totalGiven: number; totalRepaid: number; outstanding: number }
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2;
+
+  // Colors Palette
+  const primaryNavy: [number, number, number] = [11, 25, 56]; // #0B1938
+  const textDark: [number, number, number] = [15, 23, 42]; // #0F172A
+  const textMuted: [number, number, number] = [100, 116, 139]; // #64748B
+
+  // Top header banner
+  doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.roundedRect(margin, 12, contentWidth, 30, 3, 3, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Tm ISHAL • MEMBER CREDIT STATEMENT', margin + 6, 23);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(203, 213, 225);
+  doc.text('Emergency Assistance & Credit Facility (Disbursed from Group Balance)', margin + 6, 31);
+
+  // Member Information Card
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, 46, contentWidth, 24, 2, 2, 'FD');
+
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(member.name, margin + 5, 54);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  const phoneText = member.phone ? `Phone: ${member.phone}` : 'No phone recorded';
+  const roleText = member.role ? `Role: ${member.role}` : 'Community Member';
+  doc.text(`${roleText} • ${phoneText} • Member ID: ${member.id}`, margin + 5, 62);
+
+  // 3 KPI Boxes
+  const cardW = (contentWidth - 6) / 3;
+  const kpiY = 74;
+
+  // Box 1: Total Given
+  doc.setFillColor(254, 243, 199);
+  doc.setDrawColor(251, 191, 36);
+  doc.roundedRect(margin, kpiY, cardW, 18, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(180, 83, 9);
+  doc.text('TOTAL CREDIT GIVEN', margin + 4, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(formatPDFCurrency(summary.totalGiven), margin + 4, kpiY + 14);
+
+  // Box 2: Total Repaid
+  const kpi2X = margin + cardW + 3;
+  doc.setFillColor(209, 250, 229);
+  doc.setDrawColor(52, 211, 153);
+  doc.roundedRect(kpi2X, kpiY, cardW, 18, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setTextColor(4, 120, 87);
+  doc.text('TOTAL REPAID BACK', kpi2X + 4, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(formatPDFCurrency(summary.totalRepaid), kpi2X + 4, kpiY + 14);
+
+  // Box 3: Net Outstanding
+  const kpi3X = kpi2X + cardW + 3;
+  const isDue = summary.outstanding > 0;
+  doc.setFillColor(isDue ? 254 : 241, isDue ? 226 : 245, isDue ? 226 : 249);
+  doc.setDrawColor(isDue ? 248 : 203, isDue ? 113 : 213, isDue ? 113 : 225);
+  doc.roundedRect(kpi3X, kpiY, cardW, 18, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setTextColor(isDue ? 185 : 71, isDue ? 28 : 85, isDue ? 28 : 105);
+  doc.text(isDue ? 'OUTSTANDING DUE' : 'ACCOUNT STATUS', kpi3X + 4, kpiY + 6);
+  doc.setFontSize(11);
+  doc.text(isDue ? formatPDFCurrency(summary.outstanding) : 'CLEARED (Rs. 0)', kpi3X + 4, kpiY + 14);
+
+  // Table of transactions sorted chronologically
+  const sortedTxs = [...creditTransactions].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+
+  let runBalance = 0;
+  const tableData = sortedTxs.map((tx, idx) => {
+    const isGiven = tx.transactionType === 'Member Credit';
+    if (isGiven) {
+      runBalance += tx.amount;
+    } else {
+      runBalance = Math.max(0, runBalance - tx.amount);
+    }
+
+    return [
+      String(idx + 1),
+      formatDate(tx.date),
+      tx.transactionId,
+      isGiven ? 'Credit Disbursed' : 'Repayment Received',
+      (tx.paymentMethod || 'bank').toUpperCase(),
+      isGiven ? `+${formatPDFCurrency(tx.amount)}` : `-${formatPDFCurrency(tx.amount)}`,
+      formatPDFCurrency(runBalance),
+      tx.notes || '-',
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 97,
+    head: [['#', 'Date', 'TX ID', 'Transaction Type', 'Mode', 'Amount', 'Balance', 'Notes']],
+    body: tableData.length > 0 ? tableData : [['-', '-', '-', 'No transactions recorded', '-', '-', '-', '-']],
+    theme: 'grid',
+    styles: {
+      fontSize: 8,
+      cellPadding: 2.5,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: primaryNavy,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8,
+    },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 20 },
+      2: { cellWidth: 18 },
+      3: { cellWidth: 32 },
+      4: { cellWidth: 16, halign: 'center' },
+      5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      7: { cellWidth: 'auto' },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+  });
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, pageHeight - 10, pageWidth - margin, pageHeight - 10);
+
+    doc.text(
+      `IFO • Tm ISHAL Official Member Credit Statement • Generated on ${new Date().toLocaleDateString('en-GB')}`,
+      margin,
+      pageHeight - 6
+    );
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 6, {
+      align: 'right',
+    });
+  }
+
+  doc.save(`Tm_ISHAL_Credit_Statement_${member.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+}
+

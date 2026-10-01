@@ -1,6 +1,6 @@
 import React from 'react';
 import { useFinance } from '../context/FinanceContext';
-import { X, Receipt, CalendarPlus, UserPlus, Share2 } from 'lucide-react';
+import { X, Receipt, CalendarPlus, UserPlus, Coins } from 'lucide-react';
 
 interface QuickCreateModalProps {
   isOpen: boolean;
@@ -8,6 +8,7 @@ interface QuickCreateModalProps {
   onAddExpense: () => void;
   onCreateEvent: () => void;
   onAddMember: () => void;
+  onGiveCredit?: () => void;
 }
 
 export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
@@ -16,8 +17,9 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
   onAddExpense,
   onCreateEvent,
   onAddMember,
+  onGiveCredit,
 }) => {
-  const { requireAuth, events } = useFinance();
+  const { requireAuth, setActiveTab } = useFinance();
 
   if (!isOpen) return null;
 
@@ -58,7 +60,32 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
             </div>
           </button>
 
-          {/* 2. Create Event */}
+          {/* 2. Give Member Credit from Balance */}
+          <button
+            onClick={() => {
+              onClose();
+              if (onGiveCredit) {
+                onGiveCredit();
+              } else {
+                setActiveTab('transactions');
+              }
+            }}
+            className="w-full p-4 rounded-2xl bg-white hover:bg-amber-50/40 border border-slate-200/80 hover:border-amber-200 flex items-center gap-4 text-left transition-all active:scale-[0.99] group shadow-xs hover:shadow-md"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-100/80 text-amber-600 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all">
+              <Coins className="w-5 h-5 stroke-[2.2px]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-bold text-slate-900 group-hover:text-amber-700 transition-colors">
+                Give Member Credit from Balance
+              </h4>
+              <p className="text-xs text-slate-400 truncate mt-0.5 font-medium">
+                Disburse emergency advance directly from group funds
+              </p>
+            </div>
+          </button>
+
+          {/* 3. Create Event */}
           <button
             onClick={() => {
               onClose();
@@ -79,7 +106,7 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
             </div>
           </button>
 
-          {/* 3. Add Member */}
+          {/* 4. Add Member */}
           <button
             onClick={() => {
               onClose();

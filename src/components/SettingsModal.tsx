@@ -58,6 +58,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isSyncingManual, setIsSyncingManual] = useState(false);
 
+  // Developer security code state for Clear All Data
+  const [developerCodeInput, setDeveloperCodeInput] = useState('');
+  const [devCodeError, setDevCodeError] = useState('');
+
   // Fund balance inputs
   const [openingInput, setOpeningInput] = useState(openingBalance.toString());
   const [collectedInput, setCollectedInput] = useState(totalCollected.toString());
@@ -121,11 +125,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   };
 
   const handleResetData = () => {
-    requireAuth(() => {
-      eraseAllData();
+    if (developerCodeInput.trim() !== '28762876') {
+      setDevCodeError('Incorrect Developer Code. Access denied.');
+      return;
+    }
+    const res = eraseAllData('28762876');
+    if (res.success) {
       setShowResetConfirm(false);
-      setImportStatus({ success: true, message: 'All app data permanently erased successfully!' });
-    });
+      setDeveloperCodeInput('');
+      setDevCodeError('');
+      setImportStatus({
+        success: true,
+        message: 'All application and cloud data permanently erased using Developer Code.',
+      });
+    } else {
+      setDevCodeError(res.message);
+    }
   };
 
   return (
@@ -381,41 +396,95 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </button>
           </div>
 
-          {/* Section 4: Clear All Data */}
-          <div className="bg-rose-950/30 border border-rose-900/60 rounded-3xl p-4.5 space-y-2.5">
-            <h4 className="text-xs font-bold text-rose-300 uppercase tracking-wider flex items-center gap-1.5">
-              <RotateCcw className="w-4 h-4" />
-              Clear All Data
-            </h4>
+          {/* Section 4: Clear All Data (Requires Developer Code: 28762876) */}
+          <div className="bg-rose-950/30 border border-rose-900/60 rounded-3xl p-4.5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-rose-300 uppercase tracking-wider flex items-center gap-1.5">
+                <RotateCcw className="w-4 h-4 text-rose-400" />
+                Clear All Data
+              </h4>
+              <span className="text-[10px] font-bold text-rose-400 bg-rose-950/80 px-2.5 py-0.5 rounded-full border border-rose-800/80">
+                Developer Protected
+              </span>
+            </div>
             <p className="text-xs text-slate-400 font-medium">
-              Erase all recorded events, expenses, members, and fund balances to start with a clean slate.
+              Permanently erase all recorded events, expenses, members, transactions, and fund balances to start with a clean slate.
             </p>
             {showResetConfirm ? (
-              <div className="bg-[#0D1527] border border-rose-800/80 p-3.5 rounded-2xl space-y-2.5 shadow-xs">
-                <p className="text-xs font-bold text-rose-300">
-                  Are you sure you want to permanently clear all data? This cannot be undone.
-                </p>
-                <div className="flex gap-2">
+              <div className="bg-[#0D1527] border border-rose-800/80 p-4 rounded-2xl space-y-3 shadow-md animate-in fade-in duration-200">
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-300 text-xs">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                  <p className="font-semibold leading-relaxed">
+                    Permanent data wipe across all connected devices and live cloud. This action cannot be reversed.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-rose-200 mb-1.5">
+                    Enter Developer Code <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoFocus
+                    value={developerCodeInput}
+                    onChange={(e) => {
+                      setDeveloperCodeInput(e.target.value);
+                      setDevCodeError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleResetData();
+                      }
+                    }}
+                    placeholder="Enter Developer Code"
+                    className="w-full px-3.5 py-2.5 bg-[#080E1B] border border-rose-700/80 rounded-xl text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                  />
+                  {devCodeError && (
+                    <p className="text-[11px] text-rose-400 font-semibold mt-1.5 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{devCodeError}</span>
+                    </p>
+                  )}
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Restricted action. Authorized developer security code required.
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-1">
                   <button
-                    onClick={() => setShowResetConfirm(false)}
-                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300"
+                    type="button"
+                    onClick={() => {
+                      setShowResetConfirm(false);
+                      setDeveloperCodeInput('');
+                      setDevCodeError('');
+                    }}
+                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
+                    type="button"
                     onClick={handleResetData}
-                    className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-xs font-bold rounded-xl text-white shadow-xs"
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-xs font-bold rounded-xl text-white shadow-md shadow-rose-900/30 transition-all active:scale-98 cursor-pointer"
                   >
-                    Yes, Clear All
+                    Verify & Clear All Data
                   </button>
                 </div>
               </div>
             ) : (
               <button
-                onClick={() => setShowResetConfirm(true)}
-                className="w-full py-2.5 bg-[#0B1323] hover:bg-rose-950/40 text-rose-400 border border-rose-900/60 text-xs font-bold rounded-2xl transition-colors shadow-xs"
+                type="button"
+                onClick={() => {
+                  setShowResetConfirm(true);
+                  setDeveloperCodeInput('');
+                  setDevCodeError('');
+                }}
+                className="w-full py-2.5 bg-[#0B1323] hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 border border-rose-900/60 text-xs font-bold rounded-2xl transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
               >
-                Clear All Data
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Clear All Data</span>
               </button>
             )}
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { Expense, PaymentMethod } from '../../types';
 import { formatINR } from '../../utils/formatters';
@@ -119,69 +119,104 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
       ? members
       : members.filter((m) => (currentEvent?.memberIds || []).includes(m.id));
 
+  // Refs to track modal transition so background Firestore sync never clears user input
+  const prevIsOpenRef = useRef(false);
+  const prevExpenseIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
-      if (expenseToEdit) {
-        const isOther =
-          expenseToEdit.eventId === OTHER_EXPENSES_ID ||
-          events.find((e) => e.id === expenseToEdit.eventId)?.name.trim().toLowerCase() ===
-            'other expenses';
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const expenseChanged = (expenseToEdit?.id ?? null) !== (prevExpenseIdRef.current ?? null);
 
-        if (isOther) {
-          setExpenseTypeMode('other_expenses');
-          setEventId(expenseToEdit.eventId || OTHER_EXPENSES_ID);
-        } else {
-          setExpenseTypeMode('active_event');
-          setEventId(expenseToEdit.eventId);
-        }
+    prevIsOpenRef.current = isOpen;
+    prevExpenseIdRef.current = expenseToEdit ? expenseToEdit.id : null;
 
-        setName(expenseToEdit.name);
-        setAmount(String(expenseToEdit.amount));
-        setCategory(expenseToEdit.category);
-        setPaymentMethod(expenseToEdit.paymentMethod || 'cash');
-        setDate(expenseToEdit.date);
-        setPaidById(expenseToEdit.paidById);
-        setNotes(expenseToEdit.notes || '');
+    if (!isOpen) {
+      return;
+    }
+
+    // Modal was already open and expense target didn't change: DO NOT clear user's typed inputs!
+    if (!justOpened && !expenseChanged) {
+      return;
+    }
+
+    if (expenseToEdit) {
+      const isOther =
+        expenseToEdit.eventId === OTHER_EXPENSES_ID ||
+        events.find((e) => e.id === expenseToEdit.eventId)?.name.trim().toLowerCase() ===
+          'other expenses';
+
+      if (isOther) {
+        setExpenseTypeMode('other_expenses');
+        setEventId(expenseToEdit.eventId || OTHER_EXPENSES_ID);
       } else {
-        setName('');
-        setAmount('');
-        setPaymentMethod('cash');
-        setDate(new Date().toISOString().slice(0, 10));
-        setPaidById('fund');
-        setNotes('');
+        setExpenseTypeMode('active_event');
+        setEventId(expenseToEdit.eventId);
+      }
 
-        const isInitialOther =
-          initialEventId === OTHER_EXPENSES_ID ||
-          (initialEventId &&
-            events.find((e) => e.id === initialEventId)?.name.trim().toLowerCase() ===
-              'other expenses');
+      setName(expenseToEdit.name);
+      setAmount(String(expenseToEdit.amount));
+      setCategory(expenseToEdit.category);
+      setPaymentMethod(expenseToEdit.paymentMethod || 'cash');
+      setDate(expenseToEdit.date);
+      setPaidById(expenseToEdit.paidById);
+      setNotes(expenseToEdit.notes || '');
+    } else {
+      setName('');
+      setAmount('');
+      setPaymentMethod('cash');
+      setDate(new Date().toISOString().slice(0, 10));
+      setPaidById('fund');
+      setNotes('');
 
-        if (isInitialOther) {
-          setExpenseTypeMode('other_expenses');
-          const targetId = otherExpensesEvent?.id || OTHER_EXPENSES_ID;
-          setEventId(targetId);
+      const isInitialOther =
+        initialEventId === OTHER_EXPENSES_ID ||
+        (initialEventId &&
+          events.find((e) => e.id === initialEventId)?.name.trim().toLowerCase() ===
+            'other expenses');
+
+      if (isInitialOther) {
+        setExpenseTypeMode('other_expenses');
+        const targetId = otherExpensesEvent?.id || OTHER_EXPENSES_ID;
+        setEventId(targetId);
+        setCategory(otherExpensesEvent?.categories?.[0] || 'General & Maintenance');
+      } else if (initialEventId && events.some((e) => e.id === initialEventId)) {
+        setExpenseTypeMode('active_event');
+        setEventId(initialEventId);
+        const ev = events.find((e) => e.id === initialEventId);
+        setCategory(ev?.categories?.[0] || 'Food & Catering');
+      } else if (activeEvents.length > 0) {
+        setExpenseTypeMode('active_event');
+        setEventId(activeEvents[0].id);
+        setCategory(activeEvents[0].categories?.[0] || 'Food & Catering');
+      } else {
+        // If no active events exist, default to Other Expenses
+        setExpenseTypeMode('other_expenses');
+        const targetId = otherExpensesEvent?.id || OTHER_EXPENSES_ID;
+        setEventId(targetId);
+        setCategory(otherExpensesEvent?.categories?.[0] || 'General & Maintenance');
+      }
+    }
+    setShowCustomCatInput(false);
+    setShowDeleteConfirm(false);
+  }, [isOpen, expenseToEdit, initialEventId]);
+
+  // If no eventId was selected yet (e.g. events were still loading from cloud when opened), pick active or other expense event once loaded
+  useEffect(() => {
+    if (isOpen && !eventId && events.length > 0 && !expenseToEdit) {
+      if (expenseTypeMode === 'other_expenses') {
+        const targetId = otherExpensesEvent?.id || OTHER_EXPENSES_ID;
+        setEventId(targetId);
+        if (!category) {
           setCategory(otherExpensesEvent?.categories?.[0] || 'General & Maintenance');
-        } else if (initialEventId && events.some((e) => e.id === initialEventId)) {
-          setExpenseTypeMode('active_event');
-          setEventId(initialEventId);
-          const ev = events.find((e) => e.id === initialEventId);
-          setCategory(ev?.categories?.[0] || 'Food & Catering');
-        } else if (activeEvents.length > 0) {
-          setExpenseTypeMode('active_event');
-          setEventId(activeEvents[0].id);
+        }
+      } else if (activeEvents.length > 0) {
+        setEventId(activeEvents[0].id);
+        if (!category) {
           setCategory(activeEvents[0].categories?.[0] || 'Food & Catering');
-        } else {
-          // If no active events exist, default to Other Expenses
-          setExpenseTypeMode('other_expenses');
-          const targetId = otherExpensesEvent?.id || OTHER_EXPENSES_ID;
-          setEventId(targetId);
-          setCategory(otherExpensesEvent?.categories?.[0] || 'General & Maintenance');
         }
       }
-      setShowCustomCatInput(false);
-      setShowDeleteConfirm(false);
     }
-  }, [isOpen, expenseToEdit, initialEventId, events]);
+  }, [isOpen, eventId, events.length, activeEvents, otherExpensesEvent, expenseTypeMode, expenseToEdit, category]);
 
   if (!isOpen) return null;
 
@@ -325,6 +360,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
