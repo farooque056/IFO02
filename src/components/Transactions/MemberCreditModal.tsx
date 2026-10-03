@@ -62,12 +62,14 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
   // Calculate credit balance for each member
   const memberCreditMap = React.useMemo(() => {
     const map = new Map<string, { given: number; repaid: number; outstanding: number }>();
-    members.forEach((m) => {
-      map.set(m.id, { given: 0, repaid: 0, outstanding: 0 });
+    (members || []).forEach((m) => {
+      if (m?.id) {
+        map.set(m.id, { given: 0, repaid: 0, outstanding: 0 });
+      }
     });
 
-    transactions.forEach((tx) => {
-      if (!tx.memberId) return;
+    (transactions || []).forEach((tx) => {
+      if (!tx || !tx.memberId) return;
       const cur = map.get(tx.memberId) || { given: 0, repaid: 0, outstanding: 0 };
       if (tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid') {
         cur.given += Number(tx.amount) || 0;
@@ -83,14 +85,15 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
 
   // Members who currently have an outstanding credit balance
   const membersWithOutstandingCredit = React.useMemo(() => {
-    return members.filter((m) => {
+    return (members || []).filter((m) => {
+      if (!m || !m.id) return false;
       const stats = memberCreditMap.get(m.id);
       return (stats?.outstanding || 0) > 0;
     });
   }, [members, memberCreditMap]);
 
   const activeStats = memberCreditMap.get(selectedMemberId) || { given: 0, repaid: 0, outstanding: 0 };
-  const selectedMember = members.find((m) => m.id === selectedMemberId);
+  const selectedMember = (members || []).find((m) => m?.id === selectedMemberId);
 
   const prevIsOpenRef = useRef(false);
 

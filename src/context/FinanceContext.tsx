@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { EventItem, Expense, Member, PaymentMethod, TabType, TransactionRecord } from '../types';
+import { CreditNote, CreditNoteRepayment, CreditNoteStatus, EventItem, Expense, Member, PaymentMethod, TabType, TransactionRecord } from '../types';
 import { getEventFinancials } from '../utils/formatters';
 import {
+  INITIAL_CREDIT_NOTES,
   INITIAL_EVENTS,
   INITIAL_EXPENSES,
   INITIAL_MEMBERS,
@@ -102,16 +103,41 @@ interface FinanceContextType {
     date: string;
     notes?: string;
   }) => string;
-  recordCreditRepayment: (data: {
-    memberId: string;
-    amount: number;
-    paymentMethod: PaymentMethod;
-    date: string;
-    notes?: string;
-  }) => string;
+  recordCreditRepayment: (
+    creditNoteIdOrData: string | {
+      memberId: string;
+      amount: number;
+      paymentMethod: PaymentMethod;
+      date: string;
+      notes?: string;
+    },
+    maybeData?: {
+      amount: number;
+      paymentMethod: PaymentMethod;
+      date: string;
+      notes?: string;
+    }
+  ) => string;
   totalMemberCreditGiven: number;
   totalMemberCreditRepaid: number;
   netMemberCreditOutstanding: number;
+
+  // Credit Notes / Member Advances
+  creditNotes: CreditNote[];
+  totalCreditDisbursed: number;
+  totalCreditRepaid: number;
+  totalCreditOutstanding: number;
+  addCreditNote: (data: {
+    memberId: string;
+    memberName: string;
+    amount: number;
+    date: string;
+    dueDate?: string;
+    paymentMethod: PaymentMethod;
+    purpose: string;
+    notes?: string;
+  }) => string;
+  deleteCreditNote: (id: string) => void;
 
   // Data management
   resetToDefaults: () => void;
@@ -132,6 +158,7 @@ const STORAGE_KEYS = {
   EXPENSES: 'ifo_tm_ishal_expenses_v6',
   MEMBERS: 'ifo_tm_ishal_members_v6',
   TRANSACTIONS: 'ifo_tm_ishal_transactions_v6',
+  CREDIT_NOTES: 'ifo_tm_ishal_credit_notes_v6',
   PIN: 'ifo_tm_ishal_pin',
   AUTH: 'ifo_tm_ishal_is_unlocked',
   OPENING_BALANCE: 'ifo_tm_ishal_opening_balance_v6',
@@ -242,6 +269,28 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return INITIAL_TRANSACTIONS;
     }
   });
+
+  // 4b. Credit Notes State
+  const [creditNotes, setCreditNotes] = useState<CreditNote[]>(() => {
+    try {
+      if (localStorage.getItem(STORAGE_KEYS.CLEARED) === 'true') return [];
+      const saved = localStorage.getItem(STORAGE_KEYS.CREDIT_NOTES);
+      if (!saved) return INITIAL_CREDIT_NOTES;
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        return INITIAL_CREDIT_NOTES;
+      }
+      return parsed;
+    } catch {
+      return INITIAL_CREDIT_NOTES;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CREDIT_NOTES, JSON.stringify(creditNotes));
+    } catch {}
+  }, [creditNotes]);
 
   // 5. Fund Balance State (Opening Balance & Total Collected Revenue)
   const [openingBalance, setOpeningBalanceState] = useState<number>(() => {
@@ -1003,6 +1052,71 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Member Credit / Advance Actions (Disbursed directly from balance)
+  const addCreditNote = (data: {
+    memberId: string;
+    memberName: string;
+    amount: number;
+    date: string;
+    dueDate?: string;
+    paymentMethod: PaymentMethod;
+    purpose: string;
+    notes?: string;
+  }): string => {
+    const cnId = `cn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nextNum = creditNotes.reduce((max, cn) => {
+      const match = cn.voucherNo.match(/CN-\d+-(\d+)/);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0) + 1;
+    const voucherNo = `CN-2026-${String(nextNum).padStart(3, '0')}`;
+
+    const newNote: CreditNote = {
+      id: cnId,
+      voucherNo,
+      memberId: data.memberId,
+      memberName: data.memberName,
+      amount: data.amount,
+      date: data.date,
+      dueDate: data.dueDate,
+      paymentMethod: data.paymentMethod,
+      purpose: data.purpose,
+      status: 'active',
+      repaidAmount: 0,
+      remainingAmount: data.amount,
+      repayments: [],
+      notes: data.notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    setCreditNotes((prev) => [newNote, ...prev]);
+
+    // Also add corresponding transaction to track disbursement in the ledger
+    const txId = getNextTransactionId(transactions);
+    const newTx: TransactionRecord = {
+      transactionId: txId,
+      event: 'Member Credit / Advance',
+      eventId: 'ev_member_credit',
+      date: data.date,
+      transactionType: 'Member Credit',
+      nameOrCategory: data.memberName,
+      amount: data.amount,
+      paymentStatus: 'Paid',
+      notes: data.notes || `Credit advance of ₹${data.amount} (${data.purpose}) disbursed from balance to ${data.memberName} (${voucherNo})`,
+      memberId: data.memberId,
+      paymentMethod: data.paymentMethod,
+      category: 'Member Credit Advance',
+      createdAt: new Date().toISOString(),
+    };
+
+    setTransactions((prev) => [newTx, ...prev]);
+    saveTransactionCloud(newTx).catch((err) => console.error('Cloud save member credit transaction error:', err));
+
+    return cnId;
+  };
+
+  const deleteCreditNote = (id: string) => {
+    setCreditNotes((prev) => prev.filter((cn) => cn.id !== id));
+  };
+
   const giveMemberCredit = (data: {
     memberId: string;
     amount: number;
@@ -1035,14 +1149,80 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return txId;
   };
 
-  const recordCreditRepayment = (data: {
-    memberId: string;
-    amount: number;
-    paymentMethod: PaymentMethod;
-    date: string;
-    notes?: string;
-  }): string => {
-    const memberObj = members.find((m) => m.id === data.memberId);
+  const recordCreditRepayment = (
+    creditNoteIdOrData: string | {
+      memberId: string;
+      amount: number;
+      paymentMethod: PaymentMethod;
+      date: string;
+      notes?: string;
+    },
+    maybeData?: {
+      amount: number;
+      paymentMethod: PaymentMethod;
+      date: string;
+      notes?: string;
+    }
+  ): string => {
+    let memberId = '';
+    let amount = 0;
+    let paymentMethod: PaymentMethod = 'bank';
+    let date = new Date().toISOString().slice(0, 10);
+    let notes: string | undefined = undefined;
+    let creditNoteId: string | null = null;
+
+    if (typeof creditNoteIdOrData === 'string') {
+      creditNoteId = creditNoteIdOrData;
+      if (maybeData) {
+        amount = maybeData.amount;
+        paymentMethod = maybeData.paymentMethod;
+        date = maybeData.date;
+        notes = maybeData.notes;
+      }
+      const targetNote = creditNotes.find((c) => c.id === creditNoteId);
+      if (targetNote) {
+        memberId = targetNote.memberId;
+      }
+    } else {
+      memberId = creditNoteIdOrData.memberId;
+      amount = creditNoteIdOrData.amount;
+      paymentMethod = creditNoteIdOrData.paymentMethod;
+      date = creditNoteIdOrData.date;
+      notes = creditNoteIdOrData.notes;
+      const targetNote = creditNotes.find((c) => c.memberId === memberId && c.status !== 'settled');
+      if (targetNote) {
+        creditNoteId = targetNote.id;
+      }
+    }
+
+    if (creditNoteId) {
+      setCreditNotes((prev) =>
+        prev.map((cn) => {
+          if (cn.id !== creditNoteId) return cn;
+          const newRepaid = (cn.repaidAmount || 0) + amount;
+          const newRemaining = Math.max(0, cn.amount - newRepaid);
+          const newStatus: CreditNoteStatus = newRemaining <= 0 ? 'settled' : 'partially_repaid';
+          const newRepayment: CreditNoteRepayment = {
+            id: `rep_${Date.now()}`,
+            creditNoteId: cn.id,
+            amount,
+            date,
+            paymentMethod,
+            notes,
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            ...cn,
+            repaidAmount: newRepaid,
+            remainingAmount: newRemaining,
+            status: newStatus,
+            repayments: [...(cn.repayments || []), newRepayment],
+          };
+        })
+      );
+    }
+
+    const memberObj = members.find((m) => m.id === memberId);
     const memberName = memberObj ? memberObj.name : 'Member';
     const txId = getNextTransactionId(transactions);
 
@@ -1050,14 +1230,14 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       transactionId: txId,
       event: 'Member Credit / Advance',
       eventId: 'ev_member_credit',
-      date: data.date,
+      date,
       transactionType: 'Credit Repayment',
       nameOrCategory: memberName,
-      amount: data.amount,
+      amount,
       paymentStatus: 'Paid',
-      notes: data.notes || `Credit repayment of ₹${data.amount} returned to fund balance by ${memberName}`,
-      memberId: data.memberId,
-      paymentMethod: data.paymentMethod,
+      notes: notes || `Credit repayment of ₹${amount} returned to fund balance by ${memberName}`,
+      memberId,
+      paymentMethod,
       category: 'Credit Repayment',
       createdAt: new Date().toISOString(),
     };
@@ -1066,6 +1246,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveTransactionCloud(newTx).catch((err) => console.error('Cloud save credit repayment transaction error:', err));
     return txId;
   };
+
 
   // Member CRUD (Synced to Cloud in Real Time)
   const addMember = (memberData: Omit<Member, 'id' | 'createdAt'>): string => {
@@ -1129,6 +1310,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setEvents(INITIAL_EVENTS);
     setExpenses(INITIAL_EXPENSES);
     setTransactions(INITIAL_TRANSACTIONS);
+    setCreditNotes(INITIAL_CREDIT_NOTES);
     setOpeningBalanceState(7911);
     setCustomTotalCollected(null);
     setSharedPin('2323');
@@ -1138,6 +1320,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(INITIAL_EVENTS));
       localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(INITIAL_EXPENSES));
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
+      localStorage.setItem(STORAGE_KEYS.CREDIT_NOTES, JSON.stringify(INITIAL_CREDIT_NOTES));
       localStorage.setItem(STORAGE_KEYS.OPENING_BALANCE, '7911');
       localStorage.removeItem(STORAGE_KEYS.TOTAL_COLLECTED);
     } catch {}
@@ -1155,6 +1338,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setEvents([]);
     setExpenses([]);
     setTransactions([]);
+    setCreditNotes([]);
     setOpeningBalanceState(0);
     setCustomTotalCollected(null);
     setSelectedEventId(null);
@@ -1165,6 +1349,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.CREDIT_NOTES, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEYS.OPENING_BALANCE, '0');
       localStorage.removeItem(STORAGE_KEYS.TOTAL_COLLECTED);
     } catch {}
@@ -1187,6 +1372,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       events,
       expenses,
       transactions,
+      creditNotes,
     };
     return JSON.stringify(data, null, 2);
   };
@@ -1201,6 +1387,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setEvents(data.events || INITIAL_EVENTS);
       setExpenses(data.expenses || INITIAL_EXPENSES);
       setTransactions(data.transactions || INITIAL_TRANSACTIONS);
+      if (Array.isArray(data.creditNotes)) {
+        setCreditNotes(data.creditNotes);
+      }
       if (typeof data.openingBalance === 'number') {
         setOpeningBalanceState(data.openingBalance);
       }
@@ -1243,18 +1432,35 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
   }, [expenses]);
 
-  // Member Credit / Loan Aggregates
+  // Credit Notes Aggregates
+  const totalCreditDisbursed = useMemo(() => {
+    return creditNotes.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  }, [creditNotes]);
+
+  const totalCreditRepaid = useMemo(() => {
+    return creditNotes.reduce((sum, c) => sum + (Number(c.repaidAmount) || 0), 0);
+  }, [creditNotes]);
+
+  const totalCreditOutstanding = useMemo(() => {
+    return creditNotes
+      .filter((c) => c.status !== 'settled')
+      .reduce((sum, c) => sum + (Number(c.remainingAmount) || 0), 0);
+  }, [creditNotes]);
+
+  // Member Credit / Loan Aggregates (Transactions fallback)
   const totalMemberCreditGiven = useMemo(() => {
-    return transactions
+    const txSum = transactions
       .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-  }, [transactions]);
+    return Math.max(txSum, totalCreditDisbursed);
+  }, [transactions, totalCreditDisbursed]);
 
   const totalMemberCreditRepaid = useMemo(() => {
-    return transactions
+    const txSum = transactions
       .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-  }, [transactions]);
+    return Math.max(txSum, totalCreditRepaid);
+  }, [transactions, totalCreditRepaid]);
 
   const netMemberCreditOutstanding = Math.max(0, totalMemberCreditGiven - totalMemberCreditRepaid);
 
@@ -1294,6 +1500,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         expenses,
         members,
         transactions,
+        creditNotes,
         openingBalance,
         totalCollected,
         totalFundsAvailable,
@@ -1303,6 +1510,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         totalMemberCreditGiven,
         totalMemberCreditRepaid,
         netMemberCreditOutstanding,
+        totalCreditDisbursed,
+        totalCreditRepaid,
+        totalCreditOutstanding,
+        addCreditNote,
+        deleteCreditNote,
         giveMemberCredit,
         recordCreditRepayment,
         isAdminUnlocked,

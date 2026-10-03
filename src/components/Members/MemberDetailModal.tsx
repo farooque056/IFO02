@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { Member, EventItem } from '../../types';
+import { Member, EventItem, CreditNote } from '../../types';
 import { calculateEventSummary, formatINR, formatDate, getMemberFinancials, isMemberExemptFromEvent } from '../../utils/formatters';
-import { downloadMemberPDF } from '../../utils/pdfGenerator';
+import { downloadMemberPDF, downloadCreditNoteVoucherPDF } from '../../utils/pdfGenerator';
+import { IssueCreditNoteModal } from '../CreditNotes/IssueCreditNoteModal';
+import { RecordCreditRepaymentModal } from '../CreditNotes/RecordCreditRepaymentModal';
 import {
   X,
   Phone,
@@ -26,6 +28,8 @@ import {
   ChevronRight,
   Shield,
   ArrowUpRight,
+  Plus,
+  Download,
 } from 'lucide-react';
 
 interface MemberDetailModalProps {
@@ -43,13 +47,38 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
   onEditMember,
   onSelectEvent,
 }) => {
-  const { members, events, expenses, transactions, requireAuth, deleteMember } = useFinance();
-  const [activeTab, setActiveTab] = useState<'events' | 'expenses' | 'whatsapp'>('events');
+  const { members, events, expenses, transactions, creditNotes, requireAuth, deleteMember } = useFinance();
+  const [activeTab, setActiveTab] = useState<'events' | 'expenses' | 'credit' | 'whatsapp'>('events');
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [isIssueCreditModalOpen, setIsIssueCreditModalOpen] = useState(false);
+  const [selectedCreditNoteForRepayment, setSelectedCreditNoteForRepayment] = useState<CreditNote | null>(null);
 
   if (!isOpen || !member) return null;
+
+  // Member credit notes calculations
+  const memberCreditNotes = useMemo(
+    () => (creditNotes || []).filter((c) => c.memberId === member.id),
+    [creditNotes, member.id]
+  );
+  const memberActiveCredits = useMemo(
+    () => memberCreditNotes.filter((c) => c.status !== 'settled'),
+    [memberCreditNotes]
+  );
+  const memberTotalCreditDisbursed = useMemo(
+    () => memberCreditNotes.reduce((sum, c) => sum + (Number(c.amount) || 0), 0),
+    [memberCreditNotes]
+  );
+  const memberTotalCreditRepaid = useMemo(
+    () => memberCreditNotes.reduce((sum, c) => sum + (Number(c.repaidAmount) || 0), 0),
+    [memberCreditNotes]
+  );
+  const memberTotalCreditOwed = useMemo(
+    () => memberActiveCredits.reduce((sum, c) => sum + (Number(c.remainingAmount) || 0), 0),
+    [memberActiveCredits]
+  );
+
 
   // Compute aggregated stats using event donations and per-event pending calculations
   const financials = getMemberFinancials(member, events, expenses, transactions);

@@ -135,3 +135,33 @@ export interface TransactionRecord {
 
 export type Transaction = TransactionRecord;
 export type Event = EventItem;
+
+export type CreditNoteStatus = 'active' | 'partially_repaid' | 'settled';
+
+export interface CreditNoteRepayment {
+  id: string;
+  creditNoteId: string;
+  amount: number;
+  date: string;
+  paymentMethod: PaymentMethod;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface CreditNote {
+  id: string;
+  voucherNo: string;
+  memberId: string;
+  memberName: string;
+  amount: number; // in INR
+  date: string;
+  dueDate?: string;
+  paymentMethod: PaymentMethod;
+  purpose: string;
+  status: CreditNoteStatus;
+  repaidAmount: number;
+  remainingAmount: number;
+  repayments: CreditNoteRepayment[];
+  notes?: string;
+  createdAt: string;
+}

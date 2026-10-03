@@ -52,7 +52,7 @@ export const CreditNotesSection: React.FC = () => {
   };
 
   const filteredNotes = useMemo(() => {
-    return creditNotes.filter((cn) => {
+    return (creditNotes || []).filter((cn) => {
       const matchesStatus = statusFilter === 'all' || cn.status === statusFilter;
       const q = search.toLowerCase().trim();
       const matchesSearch =
@@ -66,7 +66,7 @@ export const CreditNotesSection: React.FC = () => {
     });
   }, [creditNotes, statusFilter, search]);
 
-  const activeCreditCount = creditNotes.filter(
+  const activeCreditCount = (creditNotes || []).filter(
     (c) => c.status === 'active' || c.status === 'partially_repaid'
   ).length;
 
@@ -134,7 +134,7 @@ export const CreditNotesSection: React.FC = () => {
           <p className="text-base sm:text-lg font-extrabold text-white font-mono-num">
             {formatINR(totalCreditDisbursed)}
           </p>
-          <span className="text-[10px] text-slate-500">{creditNotes.length} Total Vouchers</span>
+          <span className="text-[10px] text-slate-500">{(creditNotes || []).length} Total Vouchers</span>
         </div>
 
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">

@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { EventItem, Expense, Member, Transaction } from '../types';
+import { EventItem, Expense, Member, Transaction, CreditNote } from '../types';
 import { calculateEventSummary, formatDate, getMemberFinancials } from './formatters';
 
 // Format currency reliably for PDF standard fonts (avoids encoding issues with unicode ₹)
@@ -1996,5 +1996,183 @@ export function downloadMemberCreditStatementPDF(
   }
 
   doc.save(`Tm_ISHAL_Credit_Statement_${member.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+}
+
+/**
+ * Generate and download an official Credit Note Voucher PDF
+ */
+export function downloadCreditNoteVoucherPDF(cn: CreditNote) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2;
+
+  // Colors Palette
+  const primaryNavy: [number, number, number] = [11, 25, 56];
+  const textDark: [number, number, number] = [15, 23, 42];
+  const textMuted: [number, number, number] = [100, 116, 139];
+
+  // Header Banner
+  doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.roundedRect(margin, 12, contentWidth, 28, 3, 3, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Tm ISHAL • CREDIT NOTE VOUCHER', margin + 6, 23);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(203, 213, 225);
+  doc.text('Official Welfare & Emergency Advance Disbursement from Group Balance', margin + 6, 31);
+
+  // Voucher Meta Box
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, 44, contentWidth, 34, 2, 2, 'FD');
+
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.setFontSize(10.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Voucher No: ${cn.voucherNo}`, margin + 5, 52);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text(`Issue Date: ${formatDate(cn.date)}`, margin + 5, 60);
+  doc.text(`Due Date: ${cn.dueDate ? formatDate(cn.dueDate) : 'Not specified'}`, margin + 5, 68);
+
+  const col2X = margin + contentWidth / 2;
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Beneficiary: ${cn.memberName}`, col2X, 52);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text(`Member ID: ${cn.memberId}`, col2X, 60);
+  doc.text(`Payment Mode: ${(cn.paymentMethod || 'bank').toUpperCase()}`, col2X, 68);
+
+  // 3 KPI Cards: Disbursed, Repaid, Remaining
+  const cardW = (contentWidth - 6) / 3;
+  const kpiY = 82;
+
+  // Box 1: Disbursed Amount
+  doc.setFillColor(239, 246, 255);
+  doc.setDrawColor(191, 219, 254);
+  doc.roundedRect(margin, kpiY, cardW, 20, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(29, 78, 216);
+  doc.text('ADVANCE DISBURSED', margin + 4, kpiY + 7);
+  doc.setFontSize(12);
+  doc.text(formatPDFCurrency(cn.amount), margin + 4, kpiY + 16);
+
+  // Box 2: Total Repaid
+  const kpi2X = margin + cardW + 3;
+  doc.setFillColor(209, 250, 229);
+  doc.setDrawColor(167, 243, 208);
+  doc.roundedRect(kpi2X, kpiY, cardW, 20, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setTextColor(4, 120, 87);
+  doc.text('AMOUNT REPAID', kpi2X + 4, kpiY + 7);
+  doc.setFontSize(12);
+  doc.text(formatPDFCurrency(cn.repaidAmount || 0), kpi2X + 4, kpiY + 16);
+
+  // Box 3: Remaining Balance
+  const kpi3X = kpi2X + cardW + 3;
+  const isSettled = cn.status === 'settled';
+  doc.setFillColor(isSettled ? 241 : 254, isSettled ? 245 : 243, isSettled ? 249 : 199);
+  doc.setDrawColor(isSettled ? 203 : 251, isSettled ? 213 : 191, isSettled ? 225 : 36);
+  doc.roundedRect(kpi3X, kpiY, cardW, 20, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setTextColor(isSettled ? 71 : 180, isSettled ? 85 : 83, isSettled ? 105 : 9);
+  doc.text(isSettled ? 'VOUCHER STATUS' : 'OUTSTANDING BALANCE', kpi3X + 4, kpiY + 7);
+  doc.setFontSize(12);
+  doc.text(isSettled ? 'FULLY SETTLED' : formatPDFCurrency(cn.remainingAmount), kpi3X + 4, kpiY + 16);
+
+  // Purpose & Terms
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, 107, contentWidth, 22, 2, 2, 'FD');
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.text('Purpose of Credit Advance:', margin + 5, 114);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text(cn.purpose || 'Welfare / Emergency Support', margin + 5, 122);
+
+  // Repayments Table
+  const repaymentRows = (cn.repayments || []).map((rep, idx) => [
+    String(idx + 1),
+    formatDate(rep.date),
+    (rep.paymentMethod || 'bank').toUpperCase(),
+    formatPDFCurrency(rep.amount),
+    rep.notes || '-',
+  ]);
+
+  autoTable(doc, {
+    startY: 134,
+    head: [['#', 'Repayment Date', 'Payment Method', 'Amount Received', 'Notes']],
+    body:
+      repaymentRows.length > 0
+        ? repaymentRows
+        : [['-', '-', '-', 'No repayments recorded yet', '-']],
+    theme: 'grid',
+    styles: {
+      fontSize: 8,
+      cellPadding: 2.5,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: primaryNavy,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8,
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 35 },
+      2: { cellWidth: 35, halign: 'center' },
+      3: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
+      4: { cellWidth: 'auto' },
+    },
+  });
+
+  const finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 25 : 180;
+
+  // Signatures
+  if (finalY < pageHeight - 35) {
+    doc.setDrawColor(203, 213, 225);
+    doc.line(margin + 10, finalY, margin + 60, finalY);
+    doc.line(pageWidth - margin - 60, finalY, pageWidth - margin - 10, finalY);
+
+    doc.setFontSize(8);
+    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Beneficiary Signature', margin + 18, finalY + 5);
+    doc.text('Authorized Treasurer', pageWidth - margin - 52, finalY + 5);
+  }
+
+  // Footer
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.setDrawColor(226, 232, 240);
+  doc.line(margin, pageHeight - 10, pageWidth - margin, pageHeight - 10);
+  doc.text(
+    `IFO • Tm ISHAL Official Credit Note Voucher • Generated on ${new Date().toLocaleDateString('en-GB')}`,
+    margin,
+    pageHeight - 6
+  );
+
+  doc.save(`Tm_ISHAL_Credit_Voucher_${cn.voucherNo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
 }
 

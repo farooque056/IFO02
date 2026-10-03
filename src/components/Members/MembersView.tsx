@@ -86,9 +86,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const memberStats = useMemo(() => {
     return members.map((member) => {
       const financials = getMemberFinancials(member, events, expenses, transactions);
-      const activeCredits = creditNotes.filter((c) => c.memberId === member.id && c.status !== 'settled');
+      const activeCredits = (creditNotes || []).filter((c) => c.memberId === member.id && c.status !== 'settled');
       const totalCreditOwed = activeCredits.reduce((sum, c) => sum + (Number(c.remainingAmount) || 0), 0);
-      const allCreditNotes = creditNotes.filter((c) => c.memberId === member.id);
+      const allCreditNotes = (creditNotes || []).filter((c) => c.memberId === member.id);
 
       return {
         member,
@@ -170,6 +170,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
           member,
           joinedEventsCount,
           totalPending,
+          totalCreditOwed,
           isAllClear,
           isLatePayer,
           criticalOverdueCount,

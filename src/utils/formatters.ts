@@ -96,11 +96,14 @@ export function isMemberExemptFromEvent(
 
 export function calculateEventSummary(
   event: EventItem,
-  expenses: Expense[],
-  members: Member[],
+  expenses: Expense[] = [],
+  members: Member[] = [],
   transactions: TransactionRecord[] = []
 ): EventFinancialSummary {
-  const eventExpenses = expenses.filter((e) => e.eventId === event.id);
+  const safeExpenses = expenses || [];
+  const safeMembers = members || [];
+  const safeTransactions = transactions || [];
+  const eventExpenses = safeExpenses.filter((e) => e.eventId === event.id);
   const totalCost = eventExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const allMemberIds = event.memberIds || [];
   const memberCount = allMemberIds.length;
@@ -423,12 +426,15 @@ export interface EventFinancialMetrics {
 
 export function getEventFinancials(
   event: EventItem,
-  expenses: Expense[],
-  members: Member[],
+  expenses: Expense[] = [],
+  members: Member[] = [],
   transactions: TransactionRecord[] = []
 ): EventFinancialMetrics {
-  const summary = calculateEventSummary(event, expenses, members, transactions);
-  const evTransactions = transactions.filter(
+  const safeExpenses = expenses || [];
+  const safeMembers = members || [];
+  const safeTransactions = transactions || [];
+  const summary = calculateEventSummary(event, safeExpenses, safeMembers, safeTransactions);
+  const evTransactions = safeTransactions.filter(
     (tx) => tx.eventId === event.id || (tx.event && tx.event.toLowerCase() === event.name.toLowerCase())
   );
   const evContributions = evTransactions.filter(
@@ -456,12 +462,15 @@ export function getEventFinancials(
 
 export function generateEventWhatsAppText(
   event: EventItem,
-  expenses: Expense[],
-  members: Member[],
+  expenses: Expense[] = [],
+  members: Member[] = [],
   transactions: TransactionRecord[] = []
 ): string {
-  const summary = calculateEventSummary(event, expenses, members, transactions);
-  const eventExpenses = expenses.filter((e) => e.eventId === event.id);
+  const safeExpenses = expenses || [];
+  const safeMembers = members || [];
+  const safeTransactions = transactions || [];
+  const summary = calculateEventSummary(event, safeExpenses, safeMembers, safeTransactions);
+  const eventExpenses = safeExpenses.filter((e) => e.eventId === event.id);
 
   let text = `Hi All,\n\n✨ *Tm ISHAL — Event Financial Statement* ✨\n`;
   text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -677,11 +686,15 @@ export interface MemberFinancialMetrics {
 
 export function getMemberFinancials(
   member: Member,
-  events: EventItem[],
-  expenses: Expense[],
+  events: EventItem[] = [],
+  expenses: Expense[] = [],
   transactions: TransactionRecord[] = []
 ): MemberFinancialMetrics {
-  const joinedEvents = events.filter(
+  const safeEvents = events || [];
+  const safeExpenses = expenses || [];
+  const safeTransactions = transactions || [];
+
+  const joinedEvents = safeEvents.filter(
     (ev) =>
       (ev.memberIds || []).includes(member.id) &&
       ev.id !== 'ev_other_expenses' &&
@@ -690,7 +703,7 @@ export function getMemberFinancials(
   );
 
   // 1. Total Donated: all paid contribution transactions across all events
-  const memberPaidContributions = transactions.filter((tx) => {
+  const memberPaidContributions = safeTransactions.filter((tx) => {
     if (tx.transactionType !== 'Contribution' || tx.paymentStatus !== 'Paid') return false;
     if (tx.memberId && tx.memberId === member.id) return true;
     const cleanTxName = (tx.nameOrCategory || '').toLowerCase().trim();
@@ -704,7 +717,7 @@ export function getMemberFinancials(
   );
 
   // 2. Direct expenses out-of-pocket (if any bill was paid by member directly and not fund)
-  const memberDirectExpenses = expenses.filter(
+  const memberDirectExpenses = safeExpenses.filter(
     (exp) => exp.paidById === member.id && exp.paidById !== 'fund'
   );
   const totalDirectExpenses = memberDirectExpenses.reduce(

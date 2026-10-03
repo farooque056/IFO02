@@ -60,7 +60,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
 
   // All credit transactions
   const allCreditTransactions = useMemo(() => {
-    return transactions.filter(
+    return (transactions || []).filter(
       (tx) =>
         (tx.transactionType === 'Member Credit' || tx.transactionType === 'Credit Repayment') &&
         tx.paymentStatus !== 'Unpaid'
@@ -69,14 +69,15 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
 
   // Selected member object
   const currentMember = useMemo(() => {
-    return members.find((m) => m.id === selectedMemberId) || members[0] || null;
+    const list = members || [];
+    return list.find((m) => m.id === selectedMemberId) || list[0] || null;
   }, [members, selectedMemberId]);
 
   // Member's credit transactions sorted chronologically
   const memberTransactions = useMemo(() => {
     if (!currentMember) return [];
-    return allCreditTransactions
-      .filter((tx) => tx.memberId === currentMember.id)
+    return (allCreditTransactions || [])
+      .filter((tx) => tx && tx.memberId === currentMember.id)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [allCreditTransactions, currentMember]);
 
@@ -206,7 +207,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
             title="Close"
           >
             <X className="w-5 h-5" />
@@ -224,10 +225,10 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
               <select
                 value={selectedMemberId}
                 onChange={(e) => setSelectedMemberId(e.target.value)}
-                className="w-full px-3.5 py-2 bg-[#090F1D] border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                className="w-full px-3.5 py-2 bg-[#090F1D] border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-amber-500 cursor-pointer"
               >
-                {members.map((m) => {
-                  const mAll = allCreditTransactions.filter((tx) => tx.memberId === m.id);
+                {(members || []).map((m) => {
+                  const mAll = (allCreditTransactions || []).filter((tx) => tx && tx.memberId === m.id);
                   let mG = 0;
                   let mR = 0;
                   mAll.forEach((t) => {
@@ -244,7 +245,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
               </select>
             </div>
 
-            {/* Action Buttons: PDF, WhatsApp, Add Credit */}
+            {/* Action Buttons: PDF, WhatsApp */}
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
@@ -305,7 +306,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
                 <button
                   type="button"
                   onClick={() => onOpenCreditModal('give_credit', currentMember.id)}
-                  className="w-full py-1 px-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[10.5px] font-bold flex items-center justify-center gap-1 transition-colors"
+                  className="w-full py-1 px-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[10.5px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3" />
                   <span>+ Give Credit</span>
@@ -313,7 +314,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
                 <button
                   type="button"
                   onClick={() => onOpenCreditModal('repayment', currentMember.id)}
-                  className="w-full py-1 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10.5px] font-bold flex items-center justify-center gap-1 transition-colors"
+                  className="w-full py-1 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10.5px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                 >
                   <ArrowDownLeft className="w-3 h-3" />
                   <span>+ Record Repay</span>
@@ -347,7 +348,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
             </div>
           ) : (
             <div className="space-y-2">
-              {creditRows.map(({ tx, isGiven, runningDue }, idx) => (
+              {creditRows.map(({ tx, isGiven, runningDue }) => (
                 <div
                   key={tx.transactionId}
                   className="p-3.5 bg-[#111A2E] hover:bg-[#15233E] border border-slate-800/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors text-xs"
@@ -462,14 +463,14 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
                   <button
                     type="button"
                     onClick={() => setTxToDelete(null)}
-                    className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl"
+                    className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={confirmDelete}
-                    className="py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-xs"
+                    className="py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                   >
                     Yes, Delete Entry
                   </button>
@@ -485,7 +486,7 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
           <button
             type="button"
             onClick={onClose}
-            className="py-1.5 px-4 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl"
+            className="py-1.5 px-4 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer"
           >
             Close Statement
           </button>

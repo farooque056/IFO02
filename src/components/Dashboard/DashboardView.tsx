@@ -103,7 +103,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [isIssueCreditModalOpen, setIsIssueCreditModalOpen] = useState(false);
   const [selectedCreditNoteForRepayment, setSelectedCreditNoteForRepayment] = useState<CreditNote | null>(null);
 
-  const activeCreditNotes = useMemo(() => creditNotes.filter((c) => c.status !== 'settled'), [creditNotes]);
+  const activeCreditNotes = useMemo(() => (creditNotes || []).filter((c) => c.status !== 'settled'), [creditNotes]);
 
   // Active event member payment recording state
   const [selectedPaymentEventId, setSelectedPaymentEventId] = useState<string | null>(null);
@@ -641,7 +641,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {formatINR(totalCreditDisbursed)}
               </p>
             </div>
-            <span className="text-[10.5px] text-slate-500 font-mono-num">{creditNotes.length} Vouchers</span>
+            <span className="text-[10.5px] text-slate-500 font-mono-num">{(creditNotes || []).length} Vouchers</span>
           </div>
 
           <div className="bg-[#0B1323] p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between">
