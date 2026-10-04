@@ -136,17 +136,24 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     );
   }, [eventTransactions]);
 
-  const totalEventCollections = useMemo(() => {
-    return eventContributions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-  }, [eventContributions]);
-
-  const eventBalance = totalEventCollections > 0 ? (totalEventCollections - (eventExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0))) : null;
-
   if (!event) return null;
 
   const summary = calculateEventSummary(event, expenses, members, transactions);
   const typeInfo = EVENT_TYPE_LABELS[event.type] || { label: event.type, color: 'slate' };
   const badgeClass = getBadgeClasses(event.type);
+
+  const totalEventExpenses = useMemo(() => {
+    return eventExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  }, [eventExpenses]);
+
+  // Aggregate collections across recorded transactions and member settlement contributions
+  const totalEventCollections = useMemo(() => {
+    const txTotal = eventContributions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+    return Math.max(txTotal, summary?.totalMemberPayments || 0);
+  }, [eventContributions, summary?.totalMemberPayments]);
+
+  // Balance = Total Collections - Total Expenses (Positive = Surplus, Negative = Deficit, 0 = Settled)
+  const eventBalance = totalEventCollections - totalEventExpenses;
 
   // Filtered expenses
   const filteredExpenses = eventExpenses.filter((exp) => {
@@ -255,7 +262,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           {/* Top actions */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => downloadEventPDF(event, expenses, members)}
+              onClick={() => downloadEventPDF(event, expenses, members, transactions)}
               className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition-all active:scale-95"
               title="Download Well-Designed PDF Financial Statement"
             >
@@ -307,31 +314,18 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <div className="bg-gradient-to-br from-[#0F1C36] via-[#111F3E] to-[#0A1325] border border-blue-900/40 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden text-white">
             <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
             <div className="relative z-10">
-              {/* Primary Expense Metric & Status */}
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              {/* Primary Expense Metric, Collections & Balance Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
                 <div>
-                  <span className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">
-                    {totalEventCollections > 0 ? 'Event Financial Summary' : 'Total Event Expenditure'}
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Event Financial Summary
                   </span>
-                  <div className="flex items-baseline gap-3 mt-1 flex-wrap">
-                    <div>
-                      <span className="text-xs text-slate-400 block font-medium">Expenses:</span>
-                      <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-mono-num tracking-tight">
-                        {formatINR(summary.totalCost)}
-                      </h1>
-                    </div>
-                    {totalEventCollections > 0 && (
-                      <div className="pl-3 border-l border-slate-700">
-                        <span className="text-xs text-emerald-400 block font-medium">Collections ({eventContributions.length}):</span>
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-emerald-400 font-mono-num tracking-tight">
-                          {formatINR(totalEventCollections)}
-                        </h1>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-xs text-slate-300 font-medium mt-0.5">
+                    Live accounting statement & settlement breakdown
+                  </p>
                 </div>
 
-                <div className="flex flex-col sm:items-end gap-1.5 self-start sm:self-auto">
+                <div className="flex items-center gap-2 self-start sm:self-auto">
                   <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full border ${
                     event.status === 'completed'
                       ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800/70'
@@ -344,13 +338,80 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                     {event.status === 'hold' ? 'ON HOLD' : event.status === 'completed' ? 'CLOSED' : event.status.toUpperCase()}
                   </span>
+                </div>
+              </div>
 
-                  {eventBalance !== null && eventBalance !== 0 && (
-                    <div className="px-3 py-1 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 text-xs font-bold font-mono-num flex items-center gap-1.5">
-                      <span>Balance:</span>
-                      <span className="text-amber-200 font-black">{formatINR(eventBalance)}</span>
-                    </div>
-                  )}
+              {/* 3 Prominently Highlighted Metrics: Total Expenses, Collected Amount, Balance Amount */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3.5">
+                {/* 1. Total Expenses */}
+                <div className="bg-[#0B1323]/90 border border-slate-800/80 rounded-2xl p-3.5 shadow-inner">
+                  <span className="text-[10.5px] uppercase font-bold text-slate-400 block tracking-wider">
+                    Total Expenses
+                  </span>
+                  <div className="text-xl sm:text-2xl font-black text-white font-mono-num mt-1">
+                    {formatINR(summary.totalCost)}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono-num block mt-0.5">
+                    {eventExpenses.length} bill items recorded
+                  </span>
+                </div>
+
+                {/* 2. Collected Amount */}
+                <div className="bg-[#0B1323]/90 border border-emerald-900/50 rounded-2xl p-3.5 shadow-inner">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px] uppercase font-bold text-emerald-400 block tracking-wider">
+                      Collected Amount
+                    </span>
+                    <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+                      Inflow
+                    </span>
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono-num mt-1">
+                    {formatINR(totalEventCollections)}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono-num block mt-0.5">
+                    {eventContributions.length > 0
+                      ? `${eventContributions.length} contribution txs`
+                      : `${summary.paidMembersCount}/${summary.splittingMemberCount} members paid`}
+                  </span>
+                </div>
+
+                {/* 3. Balance Amount */}
+                <div className={`border rounded-2xl p-3.5 shadow-inner ${
+                  eventBalance > 0
+                    ? 'bg-emerald-950/40 border-emerald-700/60'
+                    : eventBalance < 0
+                    ? 'bg-rose-950/40 border-rose-700/60'
+                    : 'bg-[#0B1323]/90 border-slate-800/80'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10.5px] uppercase font-bold tracking-wider ${
+                      eventBalance > 0 ? 'text-emerald-400' : eventBalance < 0 ? 'text-rose-400' : 'text-blue-400'
+                    }`}>
+                      Balance Amount
+                    </span>
+                    <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold border ${
+                      eventBalance > 0
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                        : eventBalance < 0
+                        ? 'bg-rose-950 text-rose-300 border-rose-800'
+                        : 'bg-blue-950 text-blue-300 border-blue-800'
+                    }`}>
+                      {eventBalance > 0 ? 'Surplus' : eventBalance < 0 ? 'Deficit' : 'Settled'}
+                    </span>
+                  </div>
+                  <div className={`text-xl sm:text-2xl font-black font-mono-num mt-1 ${
+                    eventBalance > 0 ? 'text-emerald-400' : eventBalance < 0 ? 'text-rose-400' : 'text-slate-200'
+                  }`}>
+                    {eventBalance > 0 ? `+${formatINR(eventBalance)}` : formatINR(eventBalance)}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono-num block mt-0.5">
+                    {eventBalance === 0
+                      ? 'Fully settled (₹0)'
+                      : eventBalance > 0
+                      ? 'Remaining fund surplus'
+                      : 'Pending deficit to clear'}
+                  </span>
                 </div>
               </div>
 
@@ -1033,25 +1094,35 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                 )}
 
                 {/* Final Balance Highlight matching the spreadsheet */}
-                {eventBalance !== null && (
-                  eventBalance !== 0 ? (
-                    <div className="p-4 bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-amber-500/20 border-2 border-amber-400/60 rounded-2xl flex items-center justify-between shadow-md">
+                <div className="mt-3">
+                  {eventBalance !== 0 ? (
+                    <div className={`p-4 rounded-2xl flex items-center justify-between shadow-md border-2 ${
+                      eventBalance > 0
+                        ? 'bg-gradient-to-r from-emerald-500/20 via-emerald-400/15 to-emerald-500/20 border-emerald-400/60'
+                        : 'bg-gradient-to-r from-rose-500/20 via-rose-400/15 to-rose-500/20 border-rose-400/60'
+                    }`}>
                       <div>
-                        <span className="text-[11px] uppercase font-black tracking-wider text-amber-300 block">
-                          Net Fund Surplus / Remaining Balance
+                        <span className={`text-[11px] uppercase font-black tracking-wider block ${
+                          eventBalance > 0 ? 'text-emerald-300' : 'text-rose-300'
+                        }`}>
+                          {eventBalance > 0 ? 'Net Fund Surplus / Remaining Balance' : 'Net Fund Deficit / Pending Balance'}
                         </span>
-                        <p className="text-xs text-amber-200/90 mt-0.5">
-                          Total Collections ({formatINR(totalEventCollections)}) - Expenses ({formatINR(summary.totalCost)})
+                        <p className={`text-xs mt-0.5 ${eventBalance > 0 ? 'text-emerald-200/90' : 'text-rose-200/90'}`}>
+                          Total Collections ({formatINR(totalEventCollections)}) − Expenses ({formatINR(summary.totalCost)})
                         </p>
                       </div>
                       <div className="text-right">
-                        <span className="text-xl sm:text-2xl font-black font-mono-num text-amber-300 bg-amber-950/90 px-3.5 py-1.5 rounded-xl border border-amber-400/50 inline-block">
-                          {formatINR(eventBalance)}
+                        <span className={`text-xl sm:text-2xl font-black font-mono-num px-3.5 py-1.5 rounded-xl border inline-block ${
+                          eventBalance > 0
+                            ? 'text-emerald-300 bg-emerald-950/90 border-emerald-400/50'
+                            : 'text-rose-300 bg-rose-950/90 border-rose-400/50'
+                        }`}>
+                          {eventBalance > 0 ? `+${formatINR(eventBalance)}` : formatINR(eventBalance)}
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="p-3.5 bg-[#0A1325]/80 border border-blue-900/40 rounded-2xl flex items-center justify-between text-xs text-slate-300">
+                    <div className="p-3.5 bg-[#0A1325]/80 border border-emerald-900/50 rounded-2xl flex items-center justify-between text-xs text-slate-300">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                         <span className="font-semibold text-white">Event Fully Settled:</span>
@@ -1059,12 +1130,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                           Total Collections ({formatINR(totalEventCollections)}) equals Total Expenses ({formatINR(summary.totalCost)})
                         </span>
                       </div>
-                      <span className="text-[11px] font-bold text-emerald-400 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-800/60">
-                        Zero Balance
+                      <span className="text-[11px] font-bold text-emerald-400 px-2.5 py-1 rounded-md bg-emerald-950/80 border border-emerald-700/60">
+                        Zero Balance (₹0)
                       </span>
                     </div>
-                  )
-                )}
+                  )}
+                </div>
               </div>
             )}
 

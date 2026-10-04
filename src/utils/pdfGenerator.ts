@@ -30,8 +30,29 @@ export function downloadEventPDF(
   const margin = 14;
   const contentWidth = pageWidth - margin * 2;
 
-  const summary = calculateEventSummary(event, expenses, members, transactions);
-  const eventExpenses = expenses.filter((e) => e.eventId === event.id);
+  const safeExpenses = expenses || [];
+  const safeMembers = members || [];
+  const safeTransactions = transactions || [];
+
+  const summary = calculateEventSummary(event, safeExpenses, safeMembers, safeTransactions);
+  const eventExpenses = safeExpenses.filter((e) => e.eventId === event.id);
+
+  // Aggregate event-specific transactions
+  const eventTransactions = safeTransactions.filter(
+    (tx) => tx.eventId === event.id || (event.name && tx.event && tx.event.toLowerCase() === event.name.toLowerCase())
+  );
+  const eventContributions = eventTransactions.filter(
+    (tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid'
+  );
+  const txCollections = eventContributions.reduce(
+    (sum, tx) => sum + (Number(tx.amount) || 0),
+    0
+  );
+
+  // Core Financial Metric Figures
+  const totalCollectedAmount = Math.max(txCollections, summary.totalMemberPayments || 0);
+  const totalExpensesAmount = summary.totalCost;
+  const netBalanceAmount = totalCollectedAmount - totalExpensesAmount;
 
   // Colors Palette
   const primaryNavy = [11, 25, 56]; // #0B1938
@@ -85,20 +106,20 @@ export function downloadEventPDF(
     { align: 'right' }
   );
 
-  let currentY = 50;
+  let currentY = 48;
 
   // === 2. EVENT DETAILS CARD ===
   doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
   doc.setDrawColor(borderLight[0], borderLight[1], borderLight[2]);
-  doc.roundedRect(margin, currentY, contentWidth, 24, 2, 2, 'FD');
+  doc.roundedRect(margin, currentY, contentWidth, 22, 2, 2, 'FD');
 
-  doc.setFontSize(13);
+  doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-  doc.text(event.name, margin + 5, currentY + 7);
+  doc.text(event.name, margin + 5, currentY + 6.5);
 
   // Meta row
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
 
@@ -109,226 +130,210 @@ export function downloadEventPDF(
     ? `Enrolled: ${summary.memberCount} (${summary.weddingPersonName} Exempt)`
     : `Enrolled: ${summary.memberCount} Members`;
 
-  doc.text(dateText, margin + 5, currentY + 13.5);
-  doc.text(locText, margin + 48, currentY + 13.5);
-  doc.text(typeText, margin + 105, currentY + 13.5);
-  doc.text(membersText, margin + 135, currentY + 13.5);
+  doc.text(dateText, margin + 5, currentY + 12.5);
+  doc.text(locText, margin + 48, currentY + 12.5);
+  doc.text(typeText, margin + 105, currentY + 12.5);
+  doc.text(membersText, margin + 135, currentY + 12.5);
 
   if (event.notes) {
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(100, 116, 139);
-    doc.text(`Note: ${event.notes}`, margin + 5, currentY + 19.5);
+    doc.text(`Note: ${event.notes}`, margin + 5, currentY + 18);
   }
 
-  currentY += 28;
+  currentY += 26;
 
-  // === 3. FINANCIAL SUMMARY METRIC BOXES ===
+  // === 3. REDESIGNED FINANCIAL SUMMARY METRIC BOXES ===
+  // Core 3 Pillars: Total Collected Amount | Total Expenses | Net Balance
   const boxWidth = (contentWidth - 6) / 3;
-  const boxHeight = 18;
+  const boxHeight = 22;
 
-  // Box 1: Total Cost
+  // Card 1: TOTAL COLLECTED AMOUNT
   doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
   doc.roundedRect(margin, currentY, boxWidth, boxHeight, 2, 2, 'F');
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(190, 210, 245);
-  doc.text('TOTAL EXPENDITURE', margin + 4, currentY + 5.5);
-  doc.setFontSize(12);
-  doc.setTextColor(255, 255, 255);
-  doc.text(formatPDFCurrency(summary.totalCost), margin + 4, currentY + 13.5);
+  // Emerald Inflow Accent Strip on Left
+  doc.setFillColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
+  doc.roundedRect(margin, currentY, 2.5, boxHeight, 1, 1, 'F');
 
-  // Box 2: Per Member Share
-  doc.setFillColor(secondaryNavy[0], secondaryNavy[1], secondaryNavy[2]);
-  doc.roundedRect(margin + boxWidth + 3, currentY, boxWidth, boxHeight, 2, 2, 'F');
-  doc.setFontSize(7.5);
+  doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(190, 210, 245);
-  doc.text('PER MEMBER SHARE', margin + boxWidth + 7, currentY + 5.5);
-  doc.setFontSize(12);
-  doc.setTextColor(255, 255, 255);
-  doc.text(formatPDFCurrency(summary.perMemberCost), margin + boxWidth + 7, currentY + 13.5);
+  doc.setTextColor(167, 243, 208);
+  doc.text('TOTAL COLLECTED', margin + 5, currentY + 5.5);
 
-  // Box 3: Payment Modes (Cash & Bank)
+  // Inflow pill badge
+  doc.setFillColor(6, 78, 59);
+  doc.roundedRect(margin + boxWidth - 16, currentY + 3, 12, 4, 1, 1, 'F');
+  doc.setTextColor(167, 243, 208);
+  doc.setFontSize(5.5);
+  doc.text('INFLOW', margin + boxWidth - 10, currentY + 5.8, { align: 'center' });
+
+  doc.setFontSize(12.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(52, 211, 153);
+  doc.text(formatPDFCurrency(totalCollectedAmount), margin + 5, currentY + 13);
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+  const collectionsDetailStr = eventContributions.length > 0
+    ? `${eventContributions.length} Transactions Recorded`
+    : `${summary.paidMembersCount}/${summary.splittingMemberCount} Members Settled`;
+  doc.text(collectionsDetailStr, margin + 5, currentY + 18.5);
+
+  // Card 2: TOTAL EXPENSES
+  const col2X = margin + boxWidth + 3;
+  doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.roundedRect(col2X, currentY, boxWidth, boxHeight, 2, 2, 'F');
+  // Rose Outflow Accent Strip on Left
+  doc.setFillColor(roseRed[0], roseRed[1], roseRed[2]);
+  doc.roundedRect(col2X, currentY, 2.5, boxHeight, 1, 1, 'F');
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(254, 205, 211);
+  doc.text('TOTAL EXPENSES', col2X + 5, currentY + 5.5);
+
+  // Outflow pill badge
+  doc.setFillColor(136, 19, 55);
+  doc.roundedRect(col2X + boxWidth - 18, currentY + 3, 14, 4, 1, 1, 'F');
+  doc.setTextColor(254, 205, 211);
+  doc.setFontSize(5.5);
+  doc.text('OUTFLOW', col2X + boxWidth - 11, currentY + 5.8, { align: 'center' });
+
+  doc.setFontSize(12.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text(formatPDFCurrency(totalExpensesAmount), col2X + 5, currentY + 13);
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+  doc.text(`${eventExpenses.length} Expense Items Recorded`, col2X + 5, currentY + 18.5);
+
+  // Card 3: NET BALANCE
+  const col3X = margin + (boxWidth + 3) * 2;
+  const isSurplus = netBalanceAmount > 0;
+  const isDeficit = netBalanceAmount < 0;
+
+  if (isSurplus) {
+    doc.setFillColor(236, 253, 245); // Emerald-50
+    doc.setDrawColor(16, 185, 129); // Emerald-500
+  } else if (isDeficit) {
+    doc.setFillColor(254, 242, 242); // Rose-50
+    doc.setDrawColor(244, 63, 94); // Rose-500
+  } else {
+    doc.setFillColor(240, 249, 255); // Sky-50
+    doc.setDrawColor(56, 189, 248); // Sky-400
+  }
+  doc.roundedRect(col3X, currentY, boxWidth, boxHeight, 2, 2, 'FD');
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.text('NET BALANCE', col3X + 5, currentY + 5.5);
+
+  // Status Badge in Card 3
+  const badgeLabel = isSurplus ? 'SURPLUS' : isDeficit ? 'DEFICIT' : 'SETTLED';
+  const badgeBg = isSurplus ? [5, 150, 105] : isDeficit ? [225, 29, 72] : [37, 99, 235];
+  doc.setFillColor(badgeBg[0], badgeBg[1], badgeBg[2]);
+  doc.roundedRect(col3X + boxWidth - 18, currentY + 3, 14, 4, 1, 1, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(5.5);
+  doc.text(badgeLabel, col3X + boxWidth - 11, currentY + 5.8, { align: 'center' });
+
+  doc.setFontSize(12.5);
+  doc.setFont('helvetica', 'bold');
+  if (isSurplus) {
+    doc.setTextColor(5, 150, 105);
+    doc.text(`+${formatPDFCurrency(netBalanceAmount)}`, col3X + 5, currentY + 13);
+  } else if (isDeficit) {
+    doc.setTextColor(225, 29, 72);
+    doc.text(formatPDFCurrency(netBalanceAmount), col3X + 5, currentY + 13);
+  } else {
+    doc.setTextColor(15, 23, 42);
+    doc.text(formatPDFCurrency(0), col3X + 5, currentY + 13);
+  }
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  const balanceSubStr = isSurplus
+    ? 'Remaining Fund Position'
+    : isDeficit
+    ? 'Deficit / Uncollected Dues'
+    : 'Evenly Cleared & Settled';
+  doc.text(balanceSubStr, col3X + 5, currentY + 18.5);
+
+  currentY += boxHeight + 3.5;
+
+  // === AUXILIARY FINANCIAL METRICS STRIP ===
   doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
   doc.setDrawColor(borderLight[0], borderLight[1], borderLight[2]);
-  doc.roundedRect(margin + (boxWidth + 3) * 2, currentY, boxWidth, boxHeight, 2, 2, 'FD');
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text('PAYMENT BREAKDOWN', margin + (boxWidth + 3) * 2 + 4, currentY + 5.5);
+  doc.roundedRect(margin, currentY, contentWidth, 8.5, 1.5, 1.5, 'FD');
 
-  doc.setFontSize(8.5);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+
+  const stripW = contentWidth / 4;
+  // Cell 1: Target Share
+  doc.text('Target Per Head:', margin + 3, currentY + 5.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.text(formatPDFCurrency(summary.perMemberCost), margin + 26, currentY + 5.5);
+
+  // Cell 2: Cash
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text('Cash Spent:', margin + stripW + 3, currentY + 5.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
-  doc.text(`Cash: ${formatPDFCurrency(summary.cashTotal)}`, margin + (boxWidth + 3) * 2 + 4, currentY + 10.5);
+  doc.text(formatPDFCurrency(summary.cashTotal), margin + stripW + 20, currentY + 5.5);
+
+  // Cell 3: Bank
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text('Bank / UPI Spent:', margin + stripW * 2 + 3, currentY + 5.5);
+  doc.setFont('helvetica', 'bold');
   doc.setTextColor(accentBlue[0], accentBlue[1], accentBlue[2]);
-  doc.text(`Bank/UPI: ${formatPDFCurrency(summary.bankTotal)}`, margin + (boxWidth + 3) * 2 + 4, currentY + 15);
+  doc.text(formatPDFCurrency(summary.bankTotal), margin + stripW * 2 + 27, currentY + 5.5);
 
-  currentY += boxHeight + 6;
-
-  // === 4. UNPAID MEMBERS ALERT BANNER (If any) ===
-  if (summary.unpaidMembers.length > 0) {
-    doc.setFillColor(254, 242, 242); // Red tint
-    doc.setDrawColor(254, 202, 202);
-    doc.roundedRect(margin, currentY, contentWidth, 10, 2, 2, 'FD');
-
-    doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'bold');
+  // Cell 4: Pending Dues
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text('Pending Dues:', margin + stripW * 3 + 3, currentY + 5.5);
+  doc.setFont('helvetica', 'bold');
+  if (summary.totalUnpaidAmount > 0) {
     doc.setTextColor(roseRed[0], roseRed[1], roseRed[2]);
-    doc.text(
-      `Pending Dues: ${summary.unpaidMembers.length} member(s) owe a total of ${formatPDFCurrency(summary.totalUnpaidAmount)} for this event.`,
-      margin + 4,
-      currentY + 6.5
-    );
-
-    currentY += 14;
+    doc.text(`${summary.unpaidMembersCount} pax (${formatPDFCurrency(summary.totalUnpaidAmount)})`, margin + stripW * 3 + 22, currentY + 5.5);
+  } else {
+    doc.setTextColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
+    doc.text('Nil (All Cleared)', margin + stripW * 3 + 22, currentY + 5.5);
   }
 
-  // === 5. EXPENSE LEDGER TABLE ===
-  doc.setFontSize(10.5);
+  currentY += 12;
+
+  // === 4. SECTION 1: MEMBER COLLECTED & SETTLEMENT DETAILS ("Members collected details") ===
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-  doc.text('1. Itemized Transaction & Expense Ledger', margin, currentY);
-  currentY += 3;
+  doc.text('1. Member Collection & Settlement Statement', margin, currentY);
 
-  const expenseRows = eventExpenses.map((exp, idx) => {
-    const payer =
-      exp.paidById === 'fund'
-        ? 'Tm ISHAL Fund'
-        : members.find((m) => m.id === exp.paidById)?.name || 'Member';
-    const methodStr = (exp.paymentMethod || 'cash') === 'bank' ? 'Bank / UPI' : 'Cash';
-    return [
-      String(idx + 1),
-      formatDate(exp.date),
-      exp.name,
-      exp.category,
-      methodStr,
-      payer,
-      formatPDFCurrency(exp.amount),
-    ];
-  });
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text(
+    `Total Collected: ${formatPDFCurrency(totalCollectedAmount)} across ${summary.splittingMemberCount} contributing members`,
+    pageWidth - margin,
+    currentY,
+    { align: 'right' }
+  );
 
-  autoTable(doc, {
-    startY: currentY,
-    margin: { left: margin, right: margin },
-    head: [['#', 'Date', 'Expense Item', 'Category', 'Method', 'Paid By', 'Amount']],
-    body: expenseRows,
-    foot: [
-      [
-        '',
-        '',
-        'Total Event Expenses',
-        '',
-        '',
-        `${eventExpenses.length} bills`,
-        formatPDFCurrency(summary.totalCost),
-      ],
-    ],
-    theme: 'grid',
-    headStyles: {
-      fillColor: [11, 25, 56],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 8,
-      halign: 'left',
-      cellPadding: 2.2,
-    },
-    footStyles: {
-      fillColor: [241, 245, 249],
-      textColor: [15, 23, 42],
-      fontStyle: 'bold',
-      fontSize: 8.5,
-      halign: 'left',
-      cellPadding: 2.5,
-    },
-    bodyStyles: {
-      fontSize: 8,
-      textColor: [30, 41, 59],
-      cellPadding: 2,
-    },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 20 },
-      2: { cellWidth: 50, fontStyle: 'bold' },
-      3: { cellWidth: 25 },
-      4: { cellWidth: 22 },
-      5: { cellWidth: 32 },
-      6: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
-    },
-    alternateRowStyles: {
-      fillColor: [248, 250, 252],
-    },
-  });
+  currentY += 2.5;
 
-  // Get final Y from autoTable
-  // @ts-ignore
-  let finalY = doc.lastAutoTable?.finalY || currentY + 40;
-  finalY += 8;
-
-  // Check if we need a new page or have room for settlement & category summaries
-  if (finalY > pageHeight - 65) {
-    doc.addPage();
-    finalY = 18;
-  }
-
-  // === 6. CATEGORY BREAKDOWN SUMMARY ===
-  doc.setFontSize(10.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-  doc.text('2. Category Cost Distribution', margin, finalY);
-  finalY += 3;
-
-  const categoryRows = summary.categoryBreakdown.map((cat) => [
-    cat.category,
-    `${cat.count} items`,
-    `${cat.percentage}%`,
-    formatPDFCurrency(cat.amount),
-  ]);
-
-  autoTable(doc, {
-    startY: finalY,
-    margin: { left: margin, right: margin },
-    head: [['Category Name', 'Items Count', 'Share %', 'Total Amount']],
-    body: categoryRows,
-    theme: 'grid',
-    headStyles: {
-      fillColor: [30, 41, 59],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 8,
-      cellPadding: 2,
-    },
-    bodyStyles: {
-      fontSize: 8,
-      cellPadding: 2,
-    },
-    columnStyles: {
-      0: { cellWidth: 60, fontStyle: 'bold' },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 35 },
-      3: { cellWidth: 52, halign: 'right', fontStyle: 'bold' },
-    },
-  });
-
-  // @ts-ignore
-  finalY = doc.lastAutoTable?.finalY || finalY + 30;
-  finalY += 8;
-
-  if (finalY > pageHeight - 65) {
-    doc.addPage();
-    finalY = 18;
-  }
-
-  // === 7. MEMBER SETTLEMENT & DUES TABLE ===
-  doc.setFontSize(10.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-  doc.text('3. Member Contribution & Settlement Statement', margin, finalY);
-  finalY += 3;
-
-  const settlementRows = summary.memberSettlement.map((m, idx) => {
-    let statusText = 'Settled';
+  const memberRows = summary.memberSettlement.map((m, idx) => {
+    let statusText = 'Paid in Full';
     let balanceFormatted = formatPDFCurrency(0);
 
     if (m.isExemptFromSplit) {
@@ -349,45 +354,68 @@ export function downloadEventPDF(
       String(idx + 1),
       m.isWeddingPerson ? `${m.memberName} (Groom)` : m.memberName,
       m.role || 'Member',
-      formatPDFCurrency(m.totalPaid),
       m.isExemptFromSplit ? 'Rs. 0 (Exempt)' : formatPDFCurrency(m.expectedShare),
+      formatPDFCurrency(m.totalPaid),
       balanceFormatted,
       statusText,
     ];
   });
 
   autoTable(doc, {
-    startY: finalY,
+    startY: currentY,
     margin: { left: margin, right: margin },
-    head: [['#', 'Member Name', 'Role', 'Amount Paid', 'Expected Share', 'Net Balance', 'Status']],
-    body: settlementRows,
+    head: [['#', 'Member Name', 'Role', 'Expected Share', 'Amount Collected', 'Net Balance', 'Collection Status']],
+    body: memberRows,
+    foot: [
+      [
+        '',
+        'Total Collections',
+        `${summary.memberCount} members`,
+        formatPDFCurrency(summary.perMemberCost * summary.splittingMemberCount),
+        formatPDFCurrency(totalCollectedAmount),
+        summary.totalUnpaidAmount > 0 ? `-${formatPDFCurrency(summary.totalUnpaidAmount)} (Due)` : 'Rs. 0 (All Clear)',
+        summary.unpaidMembersCount === 0 ? 'Fully Cleared' : `${summary.unpaidMembersCount} Pending`,
+      ],
+    ],
     theme: 'grid',
     headStyles: {
       fillColor: [11, 25, 56],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
+      fontSize: 7.5,
+      halign: 'left',
+      cellPadding: 2,
+    },
+    footStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [15, 23, 42],
+      fontStyle: 'bold',
       fontSize: 8,
       cellPadding: 2.2,
     },
     bodyStyles: {
-      fontSize: 8,
-      cellPadding: 2,
+      fontSize: 7.5,
+      textColor: [30, 41, 59],
+      cellPadding: 1.8,
     },
     columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
+      0: { cellWidth: 7, halign: 'center' },
       1: { cellWidth: 42, fontStyle: 'bold' },
-      2: { cellWidth: 26 },
-      3: { cellWidth: 26, halign: 'right' },
-      4: { cellWidth: 26, halign: 'right' },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 27, halign: 'right' },
+      4: { cellWidth: 28, halign: 'right', fontStyle: 'bold', textColor: [5, 150, 105] },
       5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
       6: { cellWidth: 26, halign: 'center' },
     },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
     didParseCell: (data) => {
       if (data.section === 'body') {
-        const row = settlementRows[data.row.index];
+        const row = memberRows[data.row.index];
         const status = row[6];
         if (data.column.index === 5 || data.column.index === 6) {
-          if (status === 'Receives Refund') {
+          if (status === 'Receives Refund' || status.startsWith('Donated')) {
             data.cell.styles.textColor = [5, 150, 105]; // Green
           } else if (status === 'Pending (Owes)') {
             data.cell.styles.textColor = [225, 29, 72]; // Red
@@ -398,8 +426,209 @@ export function downloadEventPDF(
   });
 
   // @ts-ignore
+  let finalY = doc.lastAutoTable?.finalY || currentY + 40;
+  finalY += 8;
+
+  // Check if room for Section 2 (Itemized Expenses)
+  if (finalY > pageHeight - 65) {
+    doc.addPage();
+    finalY = 18;
+  }
+
+  // === 5. SECTION 2: ITEMIZED EXPENSE DETAILS ("Expense deails") ===
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.text('2. Itemized Expense & Voucher Ledger', margin, finalY);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text(
+    `Total Expenses: ${formatPDFCurrency(totalExpensesAmount)} across ${eventExpenses.length} bills`,
+    pageWidth - margin,
+    finalY,
+    { align: 'right' }
+  );
+
+  finalY += 2.5;
+
+  const expenseRows = eventExpenses.map((exp, idx) => {
+    const payer =
+      exp.paidById === 'fund'
+        ? 'Tm ISHAL Fund'
+        : members.find((m) => m.id === exp.paidById)?.name || 'Member';
+    const methodStr = (exp.paymentMethod || 'cash') === 'bank' ? 'Bank / UPI' : 'Cash';
+    return [
+      String(idx + 1),
+      formatDate(exp.date),
+      exp.name + (exp.notes ? ` (${exp.notes})` : ''),
+      exp.category || 'General',
+      methodStr,
+      payer,
+      formatPDFCurrency(exp.amount),
+    ];
+  });
+
+  autoTable(doc, {
+    startY: finalY,
+    margin: { left: margin, right: margin },
+    head: [['#', 'Date', 'Expense Item & Purpose', 'Category', 'Method', 'Paid By', 'Amount']],
+    body: expenseRows,
+    foot: [
+      [
+        '',
+        '',
+        'Total Event Expenses',
+        `${eventExpenses.length} items`,
+        `Cash: ${formatPDFCurrency(summary.cashTotal)}`,
+        `Bank: ${formatPDFCurrency(summary.bankTotal)}`,
+        formatPDFCurrency(totalExpensesAmount),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: {
+      fillColor: [11, 25, 56],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      halign: 'left',
+      cellPadding: 2,
+    },
+    footStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [15, 23, 42],
+      fontStyle: 'bold',
+      fontSize: 8,
+      cellPadding: 2.2,
+    },
+    bodyStyles: {
+      fontSize: 7.5,
+      textColor: [30, 41, 59],
+      cellPadding: 1.8,
+    },
+    columnStyles: {
+      0: { cellWidth: 7, halign: 'center' },
+      1: { cellWidth: 20 },
+      2: { cellWidth: 51, fontStyle: 'bold' },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 22 },
+      5: { cellWidth: 30 },
+      6: { cellWidth: 27, halign: 'right', fontStyle: 'bold', textColor: [225, 29, 72] },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+  });
+
+  // @ts-ignore
   finalY = doc.lastAutoTable?.finalY || finalY + 40;
-  finalY += 12;
+  finalY += 8;
+
+  // Check room for Category Breakdown
+  if (finalY > pageHeight - 65) {
+    doc.addPage();
+    finalY = 18;
+  }
+
+  // === 6. SECTION 3: EXPENSE CATEGORY DISTRIBUTION ===
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+  doc.text('3. Expense Category Breakdown', margin, finalY);
+  finalY += 2.5;
+
+  const categoryRows = summary.categoryBreakdown.map((cat) => [
+    cat.category,
+    `${cat.count} items`,
+    `${cat.percentage}%`,
+    formatPDFCurrency(cat.amount),
+  ]);
+
+  autoTable(doc, {
+    startY: finalY,
+    margin: { left: margin, right: margin },
+    head: [['Category Name', 'Items Count', 'Budget Share %', 'Total Amount']],
+    body: categoryRows,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      cellPadding: 2,
+    },
+    bodyStyles: {
+      fontSize: 7.5,
+      cellPadding: 1.8,
+    },
+    columnStyles: {
+      0: { cellWidth: 60, fontStyle: 'bold' },
+      1: { cellWidth: 35 },
+      2: { cellWidth: 35 },
+      3: { cellWidth: 52, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  // @ts-ignore
+  finalY = doc.lastAutoTable?.finalY || finalY + 30;
+  finalY += 8;
+
+  // === 7. SECTION 4: UNPAID MEMBERS DUES LIST (If any) ===
+  if (summary.unpaidMembers.length > 0) {
+    if (finalY > pageHeight - 55) {
+      doc.addPage();
+      finalY = 18;
+    }
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(roseRed[0], roseRed[1], roseRed[2]);
+    doc.text(`4. Pending Member Dues (${summary.unpaidMembers.length} Unpaid Members)`, margin, finalY);
+    finalY += 2.5;
+
+    const unpaidRows = summary.unpaidMembers.map((u, idx) => [
+      String(idx + 1),
+      u.memberName,
+      u.phone || 'N/A',
+      formatPDFCurrency(u.expectedShare),
+      formatPDFCurrency(u.totalPaid),
+      formatPDFCurrency(u.amountOwed),
+      'Pending Settlement',
+    ]);
+
+    autoTable(doc, {
+      startY: finalY,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Member Name', 'Phone', 'Expected Share', 'Amount Paid', 'Amount Due', 'Status']],
+      body: unpaidRows,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [159, 18, 57], // Rose-900
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7.5,
+        cellPadding: 2,
+      },
+      bodyStyles: {
+        fontSize: 7.5,
+        cellPadding: 1.8,
+      },
+      columnStyles: {
+        0: { cellWidth: 7, halign: 'center' },
+        1: { cellWidth: 45, fontStyle: 'bold' },
+        2: { cellWidth: 30 },
+        3: { cellWidth: 25, halign: 'right' },
+        4: { cellWidth: 25, halign: 'right' },
+        5: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [225, 29, 72] },
+        6: { cellWidth: 25, halign: 'center', textColor: [225, 29, 72], fontStyle: 'bold' },
+      },
+    });
+
+    // @ts-ignore
+    finalY = doc.lastAutoTable?.finalY || finalY + 30;
+    finalY += 8;
+  }
 
   if (finalY > pageHeight - 35) {
     doc.addPage();
@@ -411,7 +640,7 @@ export function downloadEventPDF(
   doc.line(margin, finalY, pageWidth - margin, finalY);
   finalY += 6;
 
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
   doc.text('Prepared by: Tm ISHAL Organizer', margin, finalY);

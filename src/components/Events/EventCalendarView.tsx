@@ -468,7 +468,7 @@ export const EventCalendarView: React.FC<EventCalendarViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          downloadEventPDF(ev, expenses, members);
+                          downloadEventPDF(ev, expenses, members, transactions);
                         }}
                         title="Download Event PDF"
                         className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-xl transition-colors border border-slate-800 bg-[#0B1323]"
@@ -592,7 +592,7 @@ export const EventCalendarView: React.FC<EventCalendarViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          downloadEventPDF(ev, expenses, members);
+                          downloadEventPDF(ev, expenses, members, transactions);
                         }}
                         title="Download Event PDF"
                         className="p-1 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded transition-colors"

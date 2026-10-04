@@ -300,37 +300,35 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         <span className="text-lg font-extrabold font-mono-num text-white">
                           {formatINR(summary.totalCost)}
                         </span>
+                        <span className="text-[10px] text-slate-400 block font-mono-num">
+                          {formatINR(summary.perMemberCost)} / pax
+                        </span>
                       </div>
 
-                      {evTotalCollections > 0 ? (
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wide">
-                              Collected
-                            </span>
-                            <span className="text-sm font-black font-mono-num text-emerald-400">
-                              {formatINR(evTotalCollections)}
-                            </span>
-                          </div>
-                          <div className="text-right pl-3 border-l border-slate-800/80">
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
-                              {(evBalance ?? 0) === 0 ? 'Status' : 'Remaining Balance'}
-                            </span>
-                            <span className={`text-sm font-black font-mono-num ${(evBalance ?? 0) === 0 ? 'text-emerald-400' : 'text-amber-300'}`}>
-                              {(evBalance ?? 0) === 0 ? 'Settled (₹0)' : formatINR(evBalance ?? 0)}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
+                      <div className="flex items-center gap-3">
                         <div className="text-right">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
-                            Per Member Share
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wide">
+                            Collected
                           </span>
-                          <span className="text-sm font-bold font-mono-num text-slate-300">
-                            {formatINR(summary.perMemberCost)}
+                          <span className="text-sm font-black font-mono-num text-emerald-400">
+                            {formatINR(evTotalCollections)}
                           </span>
                         </div>
-                      )}
+                        <div className="text-right pl-3 border-l border-slate-800/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wide">
+                            {(evBalance ?? 0) === 0 ? 'Status' : 'Remaining Balance'}
+                          </span>
+                          <span className={`text-sm font-black font-mono-num ${
+                            (evBalance ?? 0) > 0
+                              ? 'text-emerald-400'
+                              : (evBalance ?? 0) < 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                          }`}>
+                            {(evBalance ?? 0) === 0 ? 'Settled (₹0)' : formatINR(evBalance ?? 0)}
+                          </span>
+                        </div>
+                      </div>
 
                       <div className="pl-2 border-l border-slate-800 flex items-center text-slate-400 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all">
                         <ChevronRight className="w-5 h-5" />
