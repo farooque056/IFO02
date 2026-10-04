@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { Member, TransactionRecord } from '../../types';
+import { Member, TransactionRecord, PaymentMethod } from '../../types';
 import { formatINR, formatDate } from '../../utils/formatters';
 import { downloadMemberCreditStatementPDF } from '../../utils/pdfGenerator';
 import {
@@ -21,6 +21,9 @@ import {
   Search,
   Building2,
   Wallet,
+  Lock,
+  CreditCard,
+  AlertCircle,
 } from 'lucide-react';
 
 interface MemberCreditStatementModalProps {
@@ -40,6 +43,9 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
     members,
     transactions,
     deleteTransaction,
+    updateTransaction,
+    netTreasuryBalance,
+    isAdminUnlocked,
     requireAuth,
   } = useFinance();
 
@@ -48,6 +54,64 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
   );
   const [copied, setCopied] = useState(false);
   const [txToDelete, setTxToDelete] = useState<TransactionRecord | null>(null);
+
+  // Direct In-Modal Edit State
+  const [editingTx, setEditingTx] = useState<TransactionRecord | null>(null);
+  const [editAmount, setEditAmount] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState<PaymentMethod>('bank');
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [editType, setEditType] = useState<'Member Credit' | 'Credit Repayment'>('Member Credit');
+  const [editError, setEditError] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string>('');
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
+
+  const handleStartEdit = (tx: TransactionRecord) => {
+    setEditingTx(tx);
+    setEditAmount(String(tx.amount));
+    setEditDate(tx.date || new Date().toISOString().slice(0, 10));
+    setEditPaymentMethod(tx.paymentMethod || 'bank');
+    setEditNotes(tx.notes || '');
+    setEditType(tx.transactionType === 'Member Credit' ? 'Member Credit' : 'Credit Repayment');
+    setEditError('');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+
+    const numAmount = parseFloat(editAmount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setEditError('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    // 50% limit of Total Balance check if disbursement
+    const maxAllowedDisbursement = Math.max(0, Math.floor(netTreasuryBalance * 0.5));
+    if (editType === 'Member Credit' && numAmount > maxAllowedDisbursement) {
+      setEditError(
+        `Amount (${formatINR(numAmount)}) exceeds the 50% Total Balance limit (${formatINR(maxAllowedDisbursement)}).`
+      );
+      return;
+    }
+
+    requireAuth(() => {
+      updateTransaction(editingTx.transactionId, {
+        amount: numAmount,
+        date: editDate,
+        paymentMethod: editPaymentMethod,
+        notes: editNotes.trim(),
+        transactionType: editType,
+        category: editType === 'Member Credit' ? 'Member Credit Advance' : 'Member Credit Repayment',
+      });
+      setEditingTx(null);
+      showToast(`Entry ${editingTx.transactionId} updated successfully.`);
+    });
+  };
 
   // Sync selectedMemberId when modal opens with initialMemberId
   React.useEffect(() => {
@@ -423,28 +487,222 @@ export const MemberCreditStatementModal: React.FC<MemberCreditStatementModalProp
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => onOpenCreditModal(isGiven ? 'give_credit' : 'repayment', currentMember?.id, tx)}
-                        className="p-2 bg-[#1A2846] hover:bg-blue-600/30 text-blue-300 hover:text-white border border-blue-700/50 hover:border-blue-500 rounded-xl transition-all cursor-pointer"
+                        onClick={() => handleStartEdit(tx)}
+                        className="py-1.5 px-2.5 bg-[#1A2846] hover:bg-blue-600/30 text-blue-300 hover:text-white border border-blue-700/50 hover:border-blue-500 rounded-xl transition-all cursor-pointer flex items-center gap-1 font-bold text-[11px]"
                         title="Edit this entry"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setTxToDelete(tx)}
-                        className="p-2 bg-[#1A2846] hover:bg-rose-600/30 text-rose-300 hover:text-white border border-rose-700/50 hover:border-rose-500 rounded-xl transition-all cursor-pointer"
+                        className="py-1.5 px-2.5 bg-[#1A2846] hover:bg-rose-600/30 text-rose-300 hover:text-white border border-rose-700/50 hover:border-rose-500 rounded-xl transition-all cursor-pointer flex items-center gap-1 font-bold text-[11px]"
                         title="Delete this entry"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* Inline Delete Confirmation for this specific row */}
+                  {txToDelete?.transactionId === tx.transactionId && (
+                    <div className="p-3 mt-2 bg-rose-950/90 border border-rose-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in fade-in duration-150">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span className="text-rose-200 text-xs font-semibold">
+                          Delete entry <strong>{tx.transactionId}</strong> ({formatINR(tx.amount)})?
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => setTxToDelete(null)}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-bold text-xs cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={confirmDelete}
+                          className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer"
+                        >
+                          Yes, Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Success Toast */}
+        {toastMessage && (
+          <div className="mx-4 mb-2 p-2.5 bg-emerald-950/90 border border-emerald-700 rounded-xl text-emerald-300 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-150">
+            <Check className="w-4 h-4 text-emerald-400" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+
+        {/* Direct In-Modal Edit Dialog */}
+        {editingTx && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-[#0F1A30] border border-blue-900/80 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl text-white p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-950 border border-blue-700/60 text-blue-400 flex items-center justify-center font-bold">
+                    <Edit2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Edit Credit Entry ({editingTx.transactionId})</h4>
+                    <p className="text-[11px] text-slate-400">Update amount, date, method, or notes</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editError && (
+                <div className="p-3 bg-rose-950/80 border border-rose-800 rounded-xl text-rose-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveEdit} className="space-y-3.5 text-xs">
+                {/* Type Selection */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Entry Type
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditType('Member Credit')}
+                      className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                        editType === 'Member Credit'
+                          ? 'bg-amber-950/80 text-amber-300 border-amber-600/80'
+                          : 'bg-[#0B1323] text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      <span>Credit Disbursed</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditType('Credit Repayment')}
+                      className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                        editType === 'Credit Repayment'
+                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/80'
+                          : 'bg-[#0B1323] text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <span>Repayment Received</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Amount (₹)
+                    </label>
+                    {editType === 'Member Credit' && (
+                      <span className="text-[10px] text-amber-400 font-bold">
+                        Max 50% Limit: {formatINR(Math.max(0, Math.floor(netTreasuryBalance * 0.5)))}
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-400 font-mono">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={editAmount}
+                      onChange={(e) => setEditAmount(e.target.value)}
+                      className="w-full pl-8 pr-4 py-2.5 bg-[#0B1323] border border-slate-700 rounded-xl text-base font-extrabold font-mono-num text-white focus:outline-none focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Date & Payment Method */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#0B1323] border border-slate-700 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Method
+                    </label>
+                    <select
+                      value={editPaymentMethod}
+                      onChange={(e) => setEditPaymentMethod(e.target.value as PaymentMethod)}
+                      className="w-full px-3 py-2 bg-[#0B1323] border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                    >
+                      <option value="bank">🏦 Bank / UPI</option>
+                      <option value="cash">💵 Cash</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Notes / Description
+                  </label>
+                  <input
+                    type="text"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="e.g., Personal assistance advance"
+                    className="w-full px-3 py-2 bg-[#0B1323] border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Buttons */}
+                <div className="flex gap-2 pt-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTx(null)}
+                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5 stroke-[2.8px]" />
+                    <span>Save Changes</span>
+                    {!isAdminUnlocked && <Lock className="w-3 h-3 text-white/80" />}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Popup */}
         {txToDelete && (

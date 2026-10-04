@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { PaymentMethod } from '../../types';
+import { CreditNote, PaymentMethod } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import {
   X,
@@ -20,12 +20,14 @@ interface IssueCreditNoteModalProps {
   isOpen: boolean;
   onClose: () => void;
   preselectedMemberId?: string;
+  creditNoteToEdit?: CreditNote | null;
 }
 
 export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
   isOpen,
   onClose,
   preselectedMemberId,
+  creditNoteToEdit,
 }) => {
   const {
     members,
@@ -33,31 +35,50 @@ export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
     transactions,
     expenses,
     addCreditNote,
+    updateCreditNote,
     requireAuth,
   } = useFinance();
 
   const [selectedMemberId, setSelectedMemberId] = useState<string>(
-    preselectedMemberId || members[0]?.id || ''
+    creditNoteToEdit?.memberId || preselectedMemberId || members[0]?.id || ''
   );
-  const [amount, setAmount] = useState<string>('2000');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank');
-  const [purpose, setPurpose] = useState<string>('Emergency Welfare Support');
+  const [amount, setAmount] = useState<string>(
+    creditNoteToEdit ? String(creditNoteToEdit.amount) : '2000'
+  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    creditNoteToEdit?.paymentMethod || 'bank'
+  );
+  const [purpose, setPurpose] = useState<string>(
+    creditNoteToEdit?.purpose || 'Emergency Welfare Support'
+  );
   const [customPurpose, setCustomPurpose] = useState<string>('');
-  const [issueDate, setIssueDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState<string>(
-    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const [issueDate, setIssueDate] = useState<string>(
+    creditNoteToEdit?.date || new Date().toISOString().slice(0, 10)
   );
-  const [notes, setNotes] = useState<string>('');
+  const [dueDate, setDueDate] = useState<string>(
+    creditNoteToEdit?.dueDate ||
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  );
+  const [notes, setNotes] = useState<string>(creditNoteToEdit?.notes || '');
   const [error, setError] = useState<string>('');
 
-  // Update selected member if preselectedMemberId changes
-  React.useEffect(() => {
-    if (preselectedMemberId) {
+  // Sync state when creditNoteToEdit or preselectedMemberId changes
+  useEffect(() => {
+    if (creditNoteToEdit) {
+      setSelectedMemberId(creditNoteToEdit.memberId);
+      setAmount(String(creditNoteToEdit.amount));
+      setPaymentMethod(creditNoteToEdit.paymentMethod);
+      setPurpose(creditNoteToEdit.purpose);
+      setIssueDate(creditNoteToEdit.date);
+      setDueDate(creditNoteToEdit.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+      setNotes(creditNoteToEdit.notes || '');
+      setError('');
+    } else if (preselectedMemberId) {
       setSelectedMemberId(preselectedMemberId);
     } else if (members[0]?.id && !selectedMemberId) {
       setSelectedMemberId(members[0].id);
     }
-  }, [preselectedMemberId, members]);
+  }, [creditNoteToEdit, preselectedMemberId, members]);
 
   // Calculate live available treasury balance
   const treasuryInfo = useMemo(() => {
@@ -93,7 +114,9 @@ export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
   if (!isOpen) return null;
 
   const numAmount = parseFloat(amount) || 0;
-  const isExceedingBalance = numAmount > treasuryInfo.totalBalance;
+  // Maximum credit limit is 50% of the Total Balance
+  const maxCreditLimit = Math.max(0, Math.floor(treasuryInfo.totalBalance * 0.5));
+  const isExceeding50Percent = numAmount > maxCreditLimit;
   const activePurpose = purpose === 'Custom' ? customPurpose : purpose;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -106,6 +129,12 @@ export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
       setError('Please enter a valid credit amount.');
       return;
     }
+    if (numAmount > maxCreditLimit) {
+      setError(
+        `Credit advance is limited to 50% of Total Balance (${formatINR(maxCreditLimit)}). Maximum credit allowed is ${formatINR(maxCreditLimit)}.`
+      );
+      return;
+    }
     if (!activePurpose.trim()) {
       setError('Please specify the purpose for this credit advance.');
       return;
@@ -115,16 +144,29 @@ export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
     if (!member) return;
 
     requireAuth(() => {
-      addCreditNote({
-        memberId: member.id,
-        memberName: member.name,
-        amount: numAmount,
-        date: issueDate,
-        dueDate,
-        paymentMethod,
-        purpose: activePurpose.trim(),
-        notes: notes.trim(),
-      });
+      if (creditNoteToEdit) {
+        updateCreditNote(creditNoteToEdit.id, {
+          memberId: member.id,
+          memberName: member.name,
+          amount: numAmount,
+          date: issueDate,
+          dueDate,
+          paymentMethod,
+          purpose: activePurpose.trim(),
+          notes: notes.trim(),
+        });
+      } else {
+        addCreditNote({
+          memberId: member.id,
+          memberName: member.name,
+          amount: numAmount,
+          date: issueDate,
+          dueDate,
+          paymentMethod,
+          purpose: activePurpose.trim(),
+          notes: notes.trim(),
+        });
+      }
       onClose();
     });
   };
@@ -176,12 +218,12 @@ export const IssueCreditNoteModal: React.FC<IssueCreditNoteModalProps> = ({
             </div>
           )}
 
-          {isExceedingBalance && (
+          {isExceeding50Percent && (
             <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800/60 text-amber-300 text-xs flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
               <div>
-                <p className="font-bold">Amount exceeds current treasury balance ({formatINR(treasuryInfo.totalBalance)})</p>
-                <p className="text-[11px] text-amber-400/80">Issuing this will temporarily place group funds into a deficit.</p>
+                <p className="font-bold">Amount exceeds 50% limit of total balance ({formatINR(maxCreditLimit)})</p>
+                <p className="text-[11px] text-amber-400/80">Maximum allowed credit is 50% of group balance.</p>
               </div>
             </div>
           )}

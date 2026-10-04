@@ -81,10 +81,20 @@ export const TransactionsView: React.FC = () => {
     searchQuery,
     setSearchQuery,
     setSelectedEventId,
+    accountsSubTab,
+    setAccountsSubTab,
   } = useFinance();
 
-  // Active Audit & Statements Sub-Tab: Default to Recent Transactions (General Ledger)
-  const [activeMode, setActiveMode] = useState<AuditTabMode>('ledger');
+  // Active Audit & Statements Sub-Tab: Default to Recent Transactions or requested sub-tab
+  const [activeMode, setActiveMode] = useState<AuditTabMode>(
+    (accountsSubTab as AuditTabMode) || 'ledger'
+  );
+
+  React.useEffect(() => {
+    if (accountsSubTab && accountsSubTab !== activeMode) {
+      setActiveMode(accountsSubTab as AuditTabMode);
+    }
+  }, [accountsSubTab]);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
   // Member Credit Modal state
@@ -897,7 +907,10 @@ export const TransactionsView: React.FC = () => {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveMode(tab.id as AuditTabMode)}
+              onClick={() => {
+                setActiveMode(tab.id as AuditTabMode);
+                setAccountsSubTab(tab.id);
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'

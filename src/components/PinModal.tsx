@@ -85,7 +85,7 @@ export const PinModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-[#0D1527] border border-slate-800/90 rounded-t-3xl sm:rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl text-white">
         {/* Header */}
         <div className="px-6 py-4 flex items-center justify-between border-b border-slate-800/80 bg-[#0F182C]">

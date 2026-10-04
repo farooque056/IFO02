@@ -150,6 +150,8 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
 
   if (!isOpen) return null;
 
+  const maxCreditLimit = Math.max(0, Math.floor(netTreasuryBalance * 0.5));
+
   const handleDelete = () => {
     if (!transactionToEdit) return;
     requireAuth(() => {
@@ -173,6 +175,20 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
       return;
     }
 
+    // 50% Limit check for credit disbursement
+    if (mode === 'give_credit') {
+      if (netTreasuryBalance <= 0) {
+        setErrorMsg('Cannot issue credit advance: Group Total Balance is zero or negative.');
+        return;
+      }
+      if (numAmount > maxCreditLimit) {
+        setErrorMsg(
+          `Amount (${formatINR(numAmount)}) exceeds maximum 50% limit of Total Balance (${formatINR(maxCreditLimit)}). Allowed max loan is 50% of ₹${netTreasuryBalance.toLocaleString('en-IN')}.`
+        );
+        return;
+      }
+    }
+
     // If Editing an existing credit transaction
     if (transactionToEdit) {
       requireAuth(() => {
@@ -192,11 +208,6 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
     }
 
     if (mode === 'give_credit') {
-      if (numAmount > netTreasuryBalance) {
-        setErrorMsg(`Amount (${formatINR(numAmount)}) exceeds available treasury balance (${formatINR(netTreasuryBalance)}).`);
-        return;
-      }
-
       requireAuth(() => {
         giveMemberCredit({
           memberId: selectedMemberId,
@@ -223,7 +234,7 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-[#0D1527] border border-slate-800/90 rounded-t-3xl sm:rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl text-white max-h-[92vh] flex flex-col animate-in slide-in-from-bottom duration-300">
         {/* Header */}
         <div className="px-6 py-4 flex items-center justify-between border-b border-slate-800/80 shrink-0 bg-[#0F182C]">
@@ -298,15 +309,31 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
             </button>
           </div>
 
-          {/* Treasury Balance Health Badge */}
-          <div className="p-3.5 rounded-2xl bg-[#091122] border border-blue-900/40 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-cyan-400" />
-              <span className="text-slate-300 font-semibold">Available Treasury Balance:</span>
+          {/* Treasury Balance Health & 50% Loan Policy Card */}
+          <div className="p-3.5 rounded-2xl bg-[#091122] border border-blue-900/40 space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-cyan-400" />
+                <span className="text-slate-300 font-semibold">Total Group Balance:</span>
+              </div>
+              <span className="font-extrabold font-mono-num text-cyan-400 text-sm">
+                {formatINR(netTreasuryBalance)}
+              </span>
             </div>
-            <span className="font-extrabold font-mono-num text-cyan-400 text-sm">
-              {formatINR(netTreasuryBalance)}
-            </span>
+
+            {mode === 'give_credit' && (
+              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-[11px] font-bold text-amber-300">
+                    Max 50% Loan Credit Limit:
+                  </span>
+                </div>
+                <span className="text-xs font-mono-num font-extrabold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-800/70">
+                  {formatINR(maxCreditLimit)}
+                </span>
+              </div>
+            )}
           </div>
 
           {errorMsg && (
@@ -415,9 +442,42 @@ export const MemberCreditModal: React.FC<MemberCreditModalProps> = ({
               />
             </div>
 
+            {/* Live 50% Limit Validation Indicator */}
+            {mode === 'give_credit' && (parseFloat(amount) || 0) > 0 && (
+              <div className="mt-1.5 text-xs">
+                {(parseFloat(amount) || 0) > maxCreditLimit ? (
+                  <p className="text-rose-400 font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Exceeds 50% Total Balance limit (Max allowed: {formatINR(maxCreditLimit)})</span>
+                  </p>
+                ) : (
+                  <p className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Allowed under 50% limit (
+                      {netTreasuryBalance > 0
+                        ? Math.round(((parseFloat(amount) || 0) / netTreasuryBalance) * 100)
+                        : 0}
+                      % of Total Balance)
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Quick Amount Presets */}
             <div className="flex items-center gap-1.5 flex-wrap mt-2">
               <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">Quick:</span>
+              {mode === 'give_credit' && maxCreditLimit > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAmount(String(maxCreditLimit))}
+                  className="px-2.5 py-0.5 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 border border-amber-500/50 text-[11px] font-mono-num font-bold transition-all"
+                  title="Credit 50% maximum limit"
+                >
+                  Max 50% ({formatINR(maxCreditLimit)})
+                </button>
+              )}
               {[1000, 2000, 5000, 10000, 20000].map((preset) => (
                 <button
                   key={preset}

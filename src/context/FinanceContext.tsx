@@ -54,6 +54,9 @@ interface FinanceContextType {
   
   // Navigation & View Actions
   setActiveTab: (tab: TabType) => void;
+  accountsSubTab: string;
+  setAccountsSubTab: (tab: string) => void;
+  openAccountsWithMode: (mode: string) => void;
   setSelectedEventId: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
   openPinModal: (onSuccess?: () => void) => void;
@@ -137,6 +140,7 @@ interface FinanceContextType {
     purpose: string;
     notes?: string;
   }) => string;
+  updateCreditNote: (id: string, updates: Partial<CreditNote>) => void;
   deleteCreditNote: (id: string) => void;
 
   // Data management
@@ -372,6 +376,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Navigation & UI state
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [accountsSubTab, setAccountsSubTab] = useState<string>('ledger');
+  const openAccountsWithMode = (mode: string) => {
+    setAccountsSubTab(mode);
+    setActiveTab('transactions');
+  };
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1113,6 +1122,25 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return cnId;
   };
 
+  const updateCreditNote = (id: string, updates: Partial<CreditNote>) => {
+    setCreditNotes((prev) =>
+      prev.map((cn) => {
+        if (cn.id !== id) return cn;
+        const updated = { ...cn, ...updates };
+        if (updates.amount !== undefined || updates.repaidAmount !== undefined) {
+          const amt = updates.amount !== undefined ? updates.amount : cn.amount;
+          const repaid = updates.repaidAmount !== undefined ? updates.repaidAmount : cn.repaidAmount;
+          const remaining = Math.max(0, amt - repaid);
+          updated.amount = amt;
+          updated.repaidAmount = repaid;
+          updated.remainingAmount = remaining;
+          updated.status = remaining === 0 ? 'settled' : repaid > 0 ? 'partially_repaid' : 'active';
+        }
+        return updated;
+      })
+    );
+  };
+
   const deleteCreditNote = (id: string) => {
     setCreditNotes((prev) => prev.filter((cn) => cn.id !== id));
   };
@@ -1514,12 +1542,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         totalCreditRepaid,
         totalCreditOutstanding,
         addCreditNote,
+        updateCreditNote,
         deleteCreditNote,
         giveMemberCredit,
         recordCreditRepayment,
         isAdminUnlocked,
         sharedPin,
         activeTab,
+        accountsSubTab,
+        setAccountsSubTab,
+        openAccountsWithMode,
         selectedEventId,
         searchQuery,
         isPinModalOpen,
