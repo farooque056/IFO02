@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Play,
   Lock,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Expense } from '../../types';
 
@@ -68,6 +69,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [viewType, setViewType] = useState<ViewType>('cards');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'hold' | 'completed' | 'planning'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [sortOrder, setSortOrder] = useState<'latest' | 'oldest'>('latest');
   const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
 
   const handleDeleteConfirmed = () => {
@@ -99,9 +101,25 @@ export const EventsView: React.FC<EventsViewProps> = ({
       return matchesStatus && matchesType && matchesSearch;
     });
 
-    // Chronological order ensures consistent alignment across Card, Milestone, and Calendar views
-    return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [communityEvents, statusFilter, typeFilter, searchQuery]);
+    // Last event on top (newest date / created first by default)
+    return list.sort((a, b) => {
+      const timeA = new Date(a.date || a.createdAt || 0).getTime();
+      const timeB = new Date(b.date || b.createdAt || 0).getTime();
+      if (sortOrder === 'latest') {
+        if (timeB !== timeA) return timeB - timeA;
+        const createA = new Date(a.createdAt || 0).getTime();
+        const createB = new Date(b.createdAt || 0).getTime();
+        if (createB !== createA) return createB - createA;
+        return (b.id || '').localeCompare(a.id || '');
+      } else {
+        if (timeA !== timeB) return timeA - timeB;
+        const createA = new Date(a.createdAt || 0).getTime();
+        const createB = new Date(b.createdAt || 0).getTime();
+        if (createA !== createB) return createA - createB;
+        return (a.id || '').localeCompare(b.id || '');
+      }
+    });
+  }, [communityEvents, statusFilter, typeFilter, searchQuery, sortOrder]);
 
   return (
     <div className="space-y-4">
@@ -165,44 +183,59 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </button>
       </div>
 
-      {/* Filter Tabs (Visible for Card view only) */}
+      {/* Filter Tabs & Sort Order (Visible for Card view only) */}
       {viewType === 'cards' && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {(['all', 'active', 'hold', 'completed', 'planning'] as const).map((st) => {
-            const count =
-              st === 'all'
-                ? communityEvents.length
-                : communityEvents.filter((e) => e.status === st).length;
-            const label =
-              st === 'all'
-                ? 'All'
-                : st === 'active'
-                ? 'Active / Open'
-                : st === 'hold'
-                ? 'On Hold'
-                : st === 'completed'
-                ? 'Closed'
-                : 'Planning';
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {(['all', 'active', 'hold', 'completed', 'planning'] as const).map((st) => {
+              const count =
+                st === 'all'
+                  ? communityEvents.length
+                  : communityEvents.filter((e) => e.status === st).length;
+              const label =
+                st === 'all'
+                  ? 'All'
+                  : st === 'active'
+                  ? 'Active / Open'
+                  : st === 'hold'
+                  ? 'On Hold'
+                  : st === 'completed'
+                  ? 'Closed'
+                  : 'Planning';
 
-            return (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                  statusFilter === st
-                    ? 'bg-blue-950/90 text-blue-300 border border-blue-700/80 shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200 bg-[#111A2E]/90 border border-slate-800/80 hover:bg-[#16233E]'
-                }`}
-              >
-                <span>{label}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono-num ${
-                  statusFilter === st ? 'bg-blue-900/60 text-blue-200' : 'bg-slate-800/80 text-slate-400'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={st}
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                    statusFilter === st
+                      ? 'bg-blue-950/90 text-blue-300 border border-blue-700/80 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 bg-[#111A2E]/90 border border-slate-800/80 hover:bg-[#16233E]'
+                  }`}
+                >
+                  <span>{label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono-num ${
+                    statusFilter === st ? 'bg-blue-900/60 text-blue-200' : 'bg-slate-800/80 text-slate-400'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSortOrder((prev) => (prev === 'latest' ? 'oldest' : 'latest'))}
+            className="self-end sm:self-auto px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[#111A2E]/90 hover:bg-[#16233E] border border-slate-800/80 hover:border-blue-700/60 text-slate-300 hover:text-white flex items-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer"
+            title="Toggle event sort order"
+          >
+            <ArrowUpDown className="w-3.5 h-3.5 text-blue-400" />
+            <span>{sortOrder === 'latest' ? 'Last Event on Top' : 'Oldest First'}</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-900/40 text-blue-300 font-mono">
+              {sortOrder === 'latest' ? 'Newest' : 'Oldest'}
+            </span>
+          </button>
         </div>
       )}
 

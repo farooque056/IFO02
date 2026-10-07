@@ -81,23 +81,27 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
     (ev) => ev.id === OTHER_EXPENSES_ID || ev.name.trim().toLowerCase() === 'other expenses'
   );
 
-  // 2. Active Events only (strictly status === 'active', excluding other_expenses)
-  const activeEvents = events.filter(
-    (ev) =>
-      ev.status === 'active' &&
-      ev.id !== OTHER_EXPENSES_ID &&
-      ev.name.trim().toLowerCase() !== 'other expenses'
-  );
+  // 2. Active Events only (strictly status === 'active', excluding other_expenses, newest first)
+  const activeEvents = events
+    .filter(
+      (ev) =>
+        ev.status === 'active' &&
+        ev.id !== OTHER_EXPENSES_ID &&
+        ev.name.trim().toLowerCase() !== 'other expenses'
+    )
+    .sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
-  // 3. Selectable active events (also keeps the currently edited expense's event if not active anymore)
-  const selectableEvents = events.filter((ev) => {
-    if (ev.id === OTHER_EXPENSES_ID || ev.name.trim().toLowerCase() === 'other expenses') {
+  // 3. Selectable active events (also keeps the currently edited expense's event if not active anymore, newest first)
+  const selectableEvents = events
+    .filter((ev) => {
+      if (ev.id === OTHER_EXPENSES_ID || ev.name.trim().toLowerCase() === 'other expenses') {
+        return false;
+      }
+      if (ev.status === 'active') return true;
+      if (expenseToEdit && ev.id === expenseToEdit.eventId) return true;
       return false;
-    }
-    if (ev.status === 'active') return true;
-    if (expenseToEdit && ev.id === expenseToEdit.eventId) return true;
-    return false;
-  });
+    })
+    .sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
   // Selected event object to retrieve its categories and participating members
   const currentEvent = events.find((e) => e.id === eventId);

@@ -694,13 +694,15 @@ export function getMemberFinancials(
   const safeExpenses = expenses || [];
   const safeTransactions = transactions || [];
 
-  const joinedEvents = safeEvents.filter(
-    (ev) =>
-      (ev.memberIds || []).includes(member.id) &&
-      ev.id !== 'ev_other_expenses' &&
-      ev.name.trim().toLowerCase() !== 'other expenses' &&
-      !ev.name.toLowerCase().includes('other expense')
-  );
+  const joinedEvents = safeEvents
+    .filter(
+      (ev) =>
+        (ev.memberIds || []).includes(member.id) &&
+        ev.id !== 'ev_other_expenses' &&
+        ev.name.trim().toLowerCase() !== 'other expenses' &&
+        !ev.name.toLowerCase().includes('other expense')
+    )
+    .sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
   // 1. Total Donated: all paid contribution transactions across all events
   const memberPaidContributions = safeTransactions.filter((tx) => {

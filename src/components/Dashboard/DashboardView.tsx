@@ -467,7 +467,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {showEventBreakdown && (
                 <div className="mt-2.5 pt-2.5 border-t border-slate-800/60 flex flex-wrap items-center gap-1.5 transition-all">
-                  {events.map((ev) => {
+                  {[...communityEvents]
+                    .sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime())
+                    .map((ev) => {
                     const fin = getEventFinancials(ev, expenses, members, transactions);
                     const bal = fin.evBalance ?? 0;
                     return (
