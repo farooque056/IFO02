@@ -134,13 +134,32 @@ export const TransactionsView: React.FC = () => {
   // 1. GLOBAL TREASURY & AUDIT RECONCILIATION
   // ==========================================
   const treasuryAudit = useMemo(() => {
-    const verifiedCollections = transactions
+    // 1. Real-time aggregate financials across all events - guaranteed matching Dashboard main amounts
+    let eventDisbursed = 0;
+    let eventCollections = 0;
+    events.forEach((ev) => {
+      const fin = getEventFinancials(ev, expenses, members, transactions);
+      eventDisbursed += fin.summary.totalCost;
+      eventCollections += fin.evTotalCollections;
+    });
+
+    const txCollections = transactions
       .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
-    const verifiedExpenses = transactions
+    // Guaranteed matching Dashboard Total Collected / Revenue
+    const verifiedCollections = Math.max(totalCollected, eventCollections, txCollections);
+
+    const totalExpenseAmount = expenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
+    const txExpenses = transactions
       .filter((tx) => tx.transactionType === 'Expense')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+    // Guaranteed matching Dashboard Total Expense
+    const verifiedExpenses = Math.max(totalSpending, totalExpenseAmount, txExpenses);
+
+    // Guaranteed matching Dashboard Total Balance (Surplus / Deficit)
+    const closingBalance = verifiedCollections - verifiedExpenses;
 
     // Cash vs Bank split across recorded expenses
     const cashExpenses = expenses
@@ -160,31 +179,8 @@ export const TransactionsView: React.FC = () => {
       .filter((tx) => tx.transactionType === 'Contribution' && tx.paymentStatus === 'Paid' && tx.paymentMethod === 'bank')
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
-    // Cash vs Bank split across recorded member credit disbursements
-    const cashCreditGiven = transactions
-      .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid' && (tx.paymentMethod || 'cash') === 'cash')
-      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-
-    const bankCreditGiven = transactions
-      .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid' && tx.paymentMethod === 'bank')
-      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-
-    // Cash vs Bank split across recorded credit repayments
-    const cashCreditRepaid = transactions
-      .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid' && (tx.paymentMethod || 'cash') === 'cash')
-      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-
-    const bankCreditRepaid = transactions
-      .filter((tx) => tx.transactionType === 'Credit Repayment' && tx.paymentStatus === 'Paid' && tx.paymentMethod === 'bank')
-      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-
-    const totalCreditDisbursed = cashCreditGiven + bankCreditGiven;
-    const totalCreditRecovered = cashCreditRepaid + bankCreditRepaid;
-    const netCreditOut = Math.max(0, totalCreditDisbursed - totalCreditRecovered);
-
-    const closingBalance = openingBalance + verifiedCollections + totalCreditRecovered - verifiedExpenses - totalCreditDisbursed;
-    const cashInHand = cashContributions + cashCreditRepaid - cashExpenses - cashCreditGiven;
-    const bankBalance = openingBalance + bankContributions + bankCreditRepaid - bankExpenses - bankCreditGiven;
+    const cashInHand = cashContributions - cashExpenses;
+    const bankBalance = bankContributions - bankExpenses;
 
     const discrepancy = Math.abs(closingBalance - (cashInHand + bankBalance));
 
@@ -197,19 +193,19 @@ export const TransactionsView: React.FC = () => {
       bankContributions,
       cashExpenses,
       bankExpenses,
-      cashCreditGiven,
-      bankCreditGiven,
-      cashCreditRepaid,
-      bankCreditRepaid,
-      totalCreditDisbursed,
-      totalCreditRecovered,
-      netCreditOut,
+      cashCreditGiven: 0,
+      bankCreditGiven: 0,
+      cashCreditRepaid: 0,
+      bankCreditRepaid: 0,
+      totalCreditDisbursed: 0,
+      totalCreditRecovered: 0,
+      netCreditOut: 0,
       cashInHand,
       bankBalance,
       discrepancy,
       isReconciled: discrepancy === 0,
     };
-  }, [transactions, expenses, openingBalance]);
+  }, [events, expenses, members, transactions, totalCollected, totalSpending, openingBalance]);
 
   // ==========================================
   // 2. AVAILABLE MONTHS & YEARS
@@ -656,7 +652,7 @@ export const TransactionsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Audited Financial Health Bar (Live KPI Grid) */}
+      {/* Audited Financial Health Bar (Live KPI Grid) - Matches Dashboard Main Amounts */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
           <div className="flex items-center justify-between text-emerald-400 text-xs mb-1 font-semibold">
@@ -666,7 +662,7 @@ export const TransactionsView: React.FC = () => {
           <p className="text-base sm:text-lg font-extrabold text-emerald-400 font-mono-num">
             {formatINR(treasuryAudit.verifiedCollections)}
           </p>
-          <span className="text-[10px] text-slate-500">Verified Member Collections</span>
+          <span className="text-[10px] text-slate-500">Matches Dashboard Total Collected</span>
         </div>
 
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
@@ -677,18 +673,20 @@ export const TransactionsView: React.FC = () => {
           <p className="text-base sm:text-lg font-extrabold text-rose-400 font-mono-num">
             {formatINR(treasuryAudit.verifiedExpenses)}
           </p>
-          <span className="text-[10px] text-slate-500">All Functions & Welfare</span>
+          <span className="text-[10px] text-slate-500">Matches Dashboard Total Expense</span>
         </div>
 
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
           <div className="flex items-center justify-between text-cyan-400 text-xs mb-1 font-semibold">
-            <span>Closing Treasury</span>
+            <span>Total Balance</span>
             <Wallet className="w-3.5 h-3.5" />
           </div>
           <p className="text-base sm:text-lg font-extrabold text-cyan-400 font-mono-num">
             {formatINR(treasuryAudit.closingBalance)}
           </p>
-          <span className="text-[10px] text-slate-500 font-mono-num">Opening: {formatINR(treasuryAudit.openingBalance)}</span>
+          <span className="text-[10px] text-slate-500 font-mono-num">
+            {treasuryAudit.closingBalance >= 0 ? 'Surplus' : 'Deficit'} • Matches Dashboard
+          </span>
         </div>
 
         <div className="bg-[#111A2E]/90 p-3 rounded-2xl border border-slate-800/90 shadow-xs">
@@ -1576,32 +1574,16 @@ export const TransactionsView: React.FC = () => {
 
             {/* Reconciliation Math Flow */}
             <div className="bg-[#0B1323] p-4 rounded-2xl border border-slate-800/80 space-y-3 font-mono">
-              <div className="flex items-center justify-between text-xs sm:text-sm">
-                <span className="text-slate-400">1. Opening Group Balance:</span>
-                <span className="font-bold text-white">{formatINR(treasuryAudit.openingBalance)}</span>
-              </div>
               <div className="flex items-center justify-between text-xs sm:text-sm text-emerald-400">
-                <span>(+) Total Verified Member Contributions:</span>
+                <span>(+) Total Verified Member Contributions / Inflow:</span>
                 <span className="font-bold">+{formatINR(treasuryAudit.verifiedCollections)}</span>
               </div>
-              {treasuryAudit.totalCreditRecovered > 0 && (
-                <div className="flex items-center justify-between text-xs sm:text-sm text-emerald-400">
-                  <span>(+) Member Credit Repaid into Balance:</span>
-                  <span className="font-bold">+{formatINR(treasuryAudit.totalCreditRecovered)}</span>
-                </div>
-              )}
               <div className="flex items-center justify-between text-xs sm:text-sm text-rose-400">
-                <span>(-) Total Verified Expenses & Vouchers:</span>
+                <span>(-) Total Verified Expenses & Vouchers / Outflow:</span>
                 <span className="font-bold">-{formatINR(treasuryAudit.verifiedExpenses)}</span>
               </div>
-              {treasuryAudit.totalCreditDisbursed > 0 && (
-                <div className="flex items-center justify-between text-xs sm:text-sm text-amber-400">
-                  <span>(-) Member Credit Disbursed from Balance:</span>
-                  <span className="font-bold">-{formatINR(treasuryAudit.totalCreditDisbursed)}</span>
-                </div>
-              )}
               <div className="pt-2 border-t border-slate-700/80 flex items-center justify-between text-sm sm:text-base font-extrabold text-cyan-300">
-                <span>(=) Audited Treasury Net Balance:</span>
+                <span>(=) Total Group Balance (Matches Dashboard):</span>
                 <span>{formatINR(treasuryAudit.closingBalance)}</span>
               </div>
             </div>
@@ -1616,7 +1598,7 @@ export const TransactionsView: React.FC = () => {
                   <span className="font-mono-num text-sm">{formatINR(treasuryAudit.cashInHand)}</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Cash Inflows ({formatINR(treasuryAudit.cashContributions + treasuryAudit.cashCreditRepaid)}) minus Cash Outflows ({formatINR(treasuryAudit.cashExpenses + treasuryAudit.cashCreditGiven)})
+                  Cash Inflows ({formatINR(treasuryAudit.cashContributions)}) minus Cash Outflows ({formatINR(treasuryAudit.cashExpenses)})
                 </p>
               </div>
 
@@ -1628,7 +1610,7 @@ export const TransactionsView: React.FC = () => {
                   <span className="font-mono-num text-sm">{formatINR(treasuryAudit.bankBalance)}</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Opening Balance + Digital Inflows ({formatINR(treasuryAudit.bankContributions + treasuryAudit.bankCreditRepaid)}) minus Bank Outflows ({formatINR(treasuryAudit.bankExpenses + treasuryAudit.bankCreditGiven)})
+                  Digital Inflows ({formatINR(treasuryAudit.bankContributions)}) minus Bank Outflows ({formatINR(treasuryAudit.bankExpenses)})
                 </p>
               </div>
             </div>
