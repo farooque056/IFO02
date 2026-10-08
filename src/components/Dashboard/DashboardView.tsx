@@ -39,7 +39,6 @@ import {
   X,
   Lock,
   Clock,
-  Coins,
 } from 'lucide-react';
 import { Expense } from '../../types';
 
@@ -86,11 +85,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     transactions,
     totalCollected,
     totalSpending,
-    totalMemberCreditGiven,
-    totalMemberCreditRepaid,
-    netMemberCreditOutstanding,
     setActiveTab,
-    setAccountsSubTab,
     requireAuth,
     isAdminUnlocked,
     updateEvent,
@@ -416,11 +411,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <p className="text-xs text-slate-400 font-medium sm:text-right">
                 Net remaining balance across all {communityEvents.length} functions{' '}
                 <span className="text-slate-300 font-semibold">({formatINR(allEventsTotals.collections)} − {formatINR(allEventsTotals.disbursed)})</span>
-                {totalMemberCreditGiven > 0 && (
-                  <span className="block sm:inline text-amber-300 font-semibold sm:ml-1">
-                    • {formatINR(totalMemberCreditGiven)} credited to members
-                  </span>
-                )}
               </p>
             </div>
 
@@ -530,55 +520,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="text-[10px] text-rose-400 font-bold bg-rose-950/60 px-2 py-0.5 rounded-md border border-rose-800/40">Outflow</span>
               </div>
             </div>
-          </div>
-
-
-
-          {/* Member Credit & Loans Particulars in Financial Overview */}
-          <div className="mt-3.5 p-3.5 sm:p-4 bg-gradient-to-r from-amber-950/40 via-[#101A2E] to-[#101A2E] border border-amber-900/40 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-950/80 border border-amber-800/60 text-amber-400 flex items-center justify-center font-bold shrink-0 shadow-inner">
-                <Coins className="w-4.5 h-4.5 stroke-[2.2px]" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-slate-200">
-                    Member Credit & Loans:
-                  </span>
-                  <span className="text-xs font-extrabold text-amber-400 font-mono-num">
-                    {formatINR(totalMemberCreditGiven)} Credited
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    (Repaid: <strong className="text-emerald-400 font-mono-num">{formatINR(totalMemberCreditRepaid)}</strong>)
-                  </span>
-                  {netMemberCreditOutstanding > 0 ? (
-                    <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-800/70 px-2 py-0.5 rounded-full font-mono-num">
-                      Active Due: {formatINR(netMemberCreditOutstanding)}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/70 px-2 py-0.5 rounded-full">
-                      All Dues Cleared
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Member advances disbursed from balance • Managed directly in Accounts page
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAccountsSubTab('credit');
-                setActiveTab('transactions');
-              }}
-              className="py-1.5 px-3 bg-[#0B1323] hover:bg-[#16233E] border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer shrink-0"
-              title="Open Member Credit & Loans in Accounts"
-            >
-              <span>View in Accounts</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
           </div>
 
           {/* Unpaid Alert Banner if any member owes pending share */}

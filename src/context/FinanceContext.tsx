@@ -98,7 +98,7 @@ interface FinanceContextType {
   updateMember: (id: string, memberData: Partial<Member>) => void;
   deleteMember: (id: string) => { success: boolean; message?: string };
 
-  // Member Credit / Loan Actions
+  // Member Credit Actions
   giveMemberCredit: (data: {
     memberId: string;
     amount: number;
@@ -1475,7 +1475,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((sum, c) => sum + (Number(c.remainingAmount) || 0), 0);
   }, [creditNotes]);
 
-  // Member Credit / Loan Aggregates (Transactions fallback)
+  // Member Credit Aggregates (Transactions fallback)
   const totalMemberCreditGiven = useMemo(() => {
     const txSum = transactions
       .filter((tx) => tx.transactionType === 'Member Credit' && tx.paymentStatus !== 'Unpaid')
